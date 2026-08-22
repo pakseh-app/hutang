@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <title>Catatan Hutang</title>
+  <style>
+    :root{--bg:#f3f4f6;--card:#fff;--text:#111827;--muted:#6b7280;--line:#e5e7eb;--primary:#2563eb;--danger:#dc2626;--ok:#16a34a;--warn:#d97706}
+    *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
+    .wrap{max-width:1180px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+    h1,h2,h3,p{margin-top:0}.brand{font-weight:800;font-size:22px}.muted{color:var(--muted);font-size:13px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 5px 20px #00000008;margin-bottom:16px}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+    label{display:block;font-size:13px;font-weight:700;margin-bottom:6px}input,select,textarea{width:100%;padding:11px 12px;border:1px solid #d1d5db;border-radius:10px;background:#fff;font:inherit}
+    textarea{min-height:80px;resize:vertical}.btn{border:0;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer}.btn.primary{background:var(--primary);color:#fff}.btn.secondary{background:#eef2ff;color:#3730a3}.btn.danger{background:#fee2e2;color:#991b1b}.btn.ghost{background:#f3f4f6;color:#374151}.btn:disabled{opacity:.5;cursor:not-allowed}
+    .actions{display:flex;gap:8px;flex-wrap:wrap}.hidden{display:none!important}.center{max-width:430px;margin:8vh auto}.logo{font-size:42px;margin-bottom:8px}.error{background:#fef2f2;color:#991b1b;padding:10px 12px;border-radius:10px;margin:10px 0}.success{background:#f0fdf4;color:#166534;padding:10px 12px;border-radius:10px;margin:10px 0}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}.stat{padding:14px;border:1px solid var(--line);border-radius:12px}.stat b{display:block;font-size:20px;margin-top:4px}
+    .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;min-width:930px}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;font-size:13px;vertical-align:top}th{background:#f9fafb;font-size:12px}
+    .badge{display:inline-block;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:800}.lunas{background:#dcfce7;color:#166534}.berjalan{background:#dbeafe;color:#1d4ed8}.terlambat{background:#fee2e2;color:#991b1b}
+    .user-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.amount{font-size:28px;font-weight:800}.empty{text-align:center;padding:35px;color:var(--muted)}
+    .modal{position:fixed;inset:0;background:#00000055;display:flex;align-items:center;justify-content:center;padding:16px;z-index:1000}.modal-box{background:#fff;border-radius:16px;padding:20px;width:min(430px,100%);box-shadow:0 20px 60px #00000030}.modal-box h3{margin-bottom:8px}
+    @media(max-width:800px){.grid,.grid-4,.stats{grid-template-columns:1fr 1fr}.top{align-items:flex-start;flex-direction:column}}
+    @media(max-width:520px){.grid,.grid-4,.stats{grid-template-columns:1fr}.wrap{padding:12px}.card{padding:14px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div id="loginView" class="center">
+    <div class="card">
+      <div class="logo">📒</div>
+      <h1>Catatan Hutang</h1>
+      <p class="muted">Masukkan nama dan PIN untuk melihat rincian hutang Anda.</p>
+      <div id="loginMsg"></div>
+      <div style="margin:14px 0">
+        <label>Nama</label><input id="userName" placeholder="Contoh: Budi" autocomplete="name">
+      </div>
+      <div style="margin:14px 0">
+        <label>PIN</label><input id="userPin" type="password" inputmode="numeric" maxlength="8" placeholder="4–8 angka" autocomplete="current-password">
+      </div>
+      <div class="actions">
+        <button class="btn primary" onclick="loginUser()">Lihat Hutang</button>
+        <button class="btn secondary" onclick="showAdminLogin()">Login Admin</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="userView" class="hidden">
+    <div class="top">
+      <div><div class="brand">📒 Catatan Hutang</div><div class="muted">Halo, <b id="userTitle"></b></div></div>
+      <button class="btn ghost" onclick="logout()">Keluar</button>
+    </div>
+    <div class="card">
+      <div class="user-head"><div><div class="muted">Total sisa hutang</div><div id="userTotal" class="amount">Rp 0</div></div><button class="btn ghost" onclick="loadUser()">↻ Refresh</button></div>
+    </div>
+    <div class="card">
+      <h2>Rincian Hutang</h2>
+      <div id="userTable"></div>
+    </div>
+  </div>
+
+  <div id="adminLoginView" class="hidden center">
+    <div class="card">
+      <h2>🔐 Login Admin</h2>
+      <p class="muted">Password admin diverifikasi oleh Google Apps Script.</p>
+      <div id="adminLoginMsg"></div>
+      <label>Password</label><input id="adminPass" type="password" autocomplete="current-password">
+      <div class="actions" style="margin-top:12px"><button class="btn primary" onclick="loginAdmin()">Masuk</button><button class="btn ghost" onclick="backLogin()">Kembali</button></div>
+    </div>
+  </div>
+
+  <div id="adminView" class="hidden">
+    <div class="top">
+      <div><div class="brand">⚙️ Admin Catatan Hutang</div><div class="muted">Kelola semua pelanggan dan transaksi hutang</div></div>
+      <button class="btn ghost" onclick="logout()">Keluar</button>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="muted">Total data</span><b id="sCount">0</b></div>
+      <div class="stat"><span class="muted">Total hutang</span><b id="sTotal">Rp 0</b></div>
+      <div class="stat"><span class="muted">Sudah dibayar</span><b id="sPaid">Rp 0</b></div>
+      <div class="stat"><span class="muted">Sisa</span><b id="sRemain">Rp 0</b></div>
+    </div>
+
+    <div class="card">
+      <h2 id="formTitle">Tambah Hutang</h2>
+      <div id="adminMsg"></div>
+      <input id="editId" type="hidden">
+      <div class="grid">
+        <div><label>Nama *</label><input id="fName" placeholder="Nama pelanggan"></div>
+        <div><label>Tanggal mulai angsuran *</label><input id="fStart" type="date"></div>
+        <div><label>Tanggal jatuh tempo tiap bulan *</label><input id="fDueDay" type="number" min="1" max="31" step="1" placeholder="5" oninput="updateCalculatedTotal()"></div>
+        <div><label>Jumlah kali angsuran *</label><input id="fInstallments" type="number" min="1" step="1" value="12" placeholder="12"></div>
+        <div><label>Angsuran per bulan *</label><input id="fInstallmentAmount" type="number" min="1" step="1000" placeholder="150000" oninput="updateCalculatedTotal()"></div>
+        <div><label>Total hutang (otomatis)</label><input id="fTotalPreview" type="text" readonly placeholder="Rp 0"></div>
+        <div><label>Status</label><select id="fStatus"><option value="Berjalan">Berjalan</option><option value="Terlambat">Terlambat</option><option value="Lunas">Lunas</option></select></div>
+        <div style="grid-column:1/-1">
+          <div class="muted" style="margin-bottom:8px">Jadwal angsuran dibuat otomatis setiap bulan berdasarkan tanggal jatuh tempo pertama.</div>
+          <div id="schedulePreview"></div>
+        </div>
+        <div style="grid-column:1/-1"><label>Catatan</label><textarea id="fNote" placeholder="Catatan tambahan..."></textarea></div>
+      </div>
+      <div class="actions" style="margin-top:12px"><button class="btn primary" onclick="saveDebt()">Simpan</button><button id="cancelEdit" class="btn ghost hidden" onclick="resetForm()">Batal edit</button></div>
+    </div>
+
+    <div class="card">
+      <h2>🔑 Ganti Password Admin</h2>
+      <p class="muted">Password baru akan langsung disimpan ke sheet <b>Pengaturan</b>. Minimal 8 karakter.</p>
+      <div id="passwordMsg"></div>
+      <div class="grid">
+        <div><label>Password baru *</label><input id="newAdminPass" type="password" autocomplete="new-password" placeholder="Minimal 8 karakter"></div>
+        <div><label>Ulangi password baru *</label><input id="confirmAdminPass" type="password" autocomplete="new-password" placeholder="Ketik ulang password"></div>
+      </div>
+      <div class="actions" style="margin-top:12px"><button class="btn primary" onclick="changeAdminPassword()">Simpan Password</button></div>
+    </div>
+
+    <div class="card">
+      <h2>👤 Pelanggan & PIN</h2>
+      <p class="muted">Buat pelanggan atau reset PIN mereka. PIN tidak ditampilkan kembali setelah disimpan.</p>
+      <div id="userAdminMsg"></div>
+      <div class="grid">
+        <div><label>Nama pelanggan *</label><input id="uName" placeholder="Nama pelanggan"></div>
+        <div><label>PIN *</label><input id="uPin" type="password" inputmode="numeric" maxlength="8" placeholder="4–8 angka"></div>
+        <div><label>Ulangi PIN *</label><input id="uPinConfirm" type="password" inputmode="numeric" maxlength="8" placeholder="Ketik ulang PIN"></div>
+        <div style="display:flex;align-items:end"><button class="btn primary" onclick="saveUserAdmin()">Simpan / Reset PIN</button></div>
+      </div>
+      <div id="usersTable" style="margin-top:14px"></div>
+    </div>
+
+    <div class="card">
+      <div class="top">
+        <div><h2 style="margin-bottom:2px">Data Hutang</h2><div class="muted">Filter per bulan, nama, atau status.</div></div>
+        <button class="btn ghost" onclick="loadAdmin()">↻ Refresh</button>
+      </div>
+      <div class="grid-4" style="margin-bottom:12px">
+        <input id="filterMonth" type="month" onchange="renderAdmin()">
+        <input id="filterName" placeholder="Cari nama..." oninput="renderAdmin()">
+        <select id="filterStatus" onchange="renderAdmin()"><option value="">Semua status</option><option>Berjalan</option><option>Lunas</option><option>Terlambat</option></select>
+        <button class="btn ghost" onclick="clearFilters()">Reset filter</button>
+      </div>
+      <div id="adminTable"></div>
+    </div>
+  </div>
+</div>
+
+<div id="paymentModal" class="modal hidden">
+  <div class="modal-box">
+    <h3>💵 Bayar Angsuran</h3>
+    <div id="paymentInfo" class="muted" style="margin-bottom:14px"></div>
+    <label>Tanggal pembayaran *</label>
+    <input id="paymentDate" type="date">
+    <div id="paymentMsg" style="margin-top:10px"></div>
+    <div class="actions" style="margin-top:14px;justify-content:flex-end">
+      <button class="btn ghost" onclick="closePaymentModal()">Batal</button>
+      <button class="btn primary" onclick="submitPayment()">Konfirmasi Bayar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // GANTI URL INI dengan URL Web App Google Apps Script Anda.
+  const API_URL = "https://script.google.com/macros/s/AKfycbzaYjfa3gxQuWhPWLQxZw0JWeAS6F3Wo9FmOcQMW5im3ouZjlOeClJxh6OiBdSE0qhJ/exec";
+  let adminToken = "", adminData = [], adminUsers = [], currentUser = "", userToken = "", paymentDebtId = "";
+
+  function money(n){return new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(Number(n)||0)}
+  function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+  function msg(id,text,type="error"){document.getElementById(id).innerHTML=text?`<div class="${type}">${esc(text)}</div>`:""}
+  function show(id){document.getElementById(id).classList.remove("hidden")}
+  function hide(id){document.getElementById(id).classList.add("hidden")}
+  function backLogin(){hide("adminLoginView");show("loginView")}
+  function showAdminLogin(){hide("loginView");show("adminLoginView");document.getElementById("adminPass").focus()}
+  function logout(){adminToken="";adminData=[];adminUsers=[];currentUser="";userToken="";hide("userView");hide("adminView");hide("adminLoginView");show("loginView");document.getElementById("adminPass").value="";document.getElementById("userPin").value=""}
+
+  async function sha256(text){
+    const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
+    return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+  }
+  function jsonp(params){
+    return new Promise((resolve,reject)=>{
+      const cb="cb_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+      const s=document.createElement("script");
+      const q=new URLSearchParams({...params,callback:cb});
+      s.src=API_URL+"?"+q.toString();
+      s.async=true;
+      const timer=setTimeout(()=>{cleanup();reject(new Error("Server tidak merespons."))},20000);
+      function cleanup(){clearTimeout(timer);delete window[cb];s.remove()}
+      window[cb]=(data)=>{cleanup();if(data&&data.ok)resolve(data);else reject(new Error(data?.error||"Terjadi kesalahan."))}
+      s.onerror=()=>{cleanup();reject(new Error("Tidak dapat terhubung ke server."))}
+      document.body.appendChild(s);
+    })
+  }
+
+  async function loginUser(){
+    const name=document.getElementById("userName").value.trim();
+    const pin=document.getElementById("userPin").value.trim();
+    msg("loginMsg","");
+    if(!name||!pin)return msg("loginMsg","Nama dan PIN wajib diisi.");
+    if(!/^\d{4,8}$/.test(pin))return msg("loginMsg","PIN harus 4–8 angka.");
+    try{
+      const hash=await sha256(pin);
+      const r=await jsonp({action:"userLogin",name,pinHash:hash});
+      userToken=r.token;currentUser=r.name;document.getElementById("userTitle").textContent=currentUser;hide("loginView");show("userView");document.getElementById("userPin").value="";renderUser(r.data||[]);
+    }catch(e){msg("loginMsg",e.message)}
+  }
+
+  async function loadUser(){
+    try{const r=await jsonp({action:"userData",token:userToken});renderUser(r.data||[])}catch(e){alert(e.message)}
+  }
+  function renderUser(rows){
+    let total=0;
+    rows.forEach(x=>total+=Number(x.sisa)||0);
+    document.getElementById("userTotal").textContent=money(total);
+    if(!rows.length){document.getElementById("userTable").innerHTML='<div class="empty">Belum ada catatan hutang.</div>';return}
+    document.getElementById("userTable").innerHTML=rows.map(x=>renderDebtCard(x,false)).join("");
+  }
+
+  async function loginAdmin(){
+    const pass=document.getElementById("adminPass").value;
+    msg("adminLoginMsg","");
+    if(!pass)return msg("adminLoginMsg","Password wajib diisi.");
+    try{
+      const hash=await sha256(pass);
+      const r=await jsonp({action:"adminLogin",passwordHash:hash});
+      adminToken=r.token;hide("adminLoginView");show("adminView");resetForm();loadAdmin();
+    }catch(e){msg("adminLoginMsg",e.message)}
+  }
+
+  async function loadAdmin(){
+    try{const r=await jsonp({action:"adminData",token:adminToken});adminData=r.data||[];renderAdmin();loadUsersAdmin()}catch(e){alert(e.message);if(/login|token/i.test(e.message))logout()}
+  }
+  async function changeAdminPassword(){
+    const pass=document.getElementById("newAdminPass").value;
+    const confirmPass=document.getElementById("confirmAdminPass").value;
+    msg("passwordMsg","");
+    if(pass.length<8)return msg("passwordMsg","Password baru minimal 8 karakter.");
+    if(pass!==confirmPass)return msg("passwordMsg","Konfirmasi password tidak sama.");
+    if(!confirm("Yakin ingin mengganti password admin?"))return;
+    try{
+      const r=await jsonp({action:"changePassword",token:adminToken,newPassword:pass});
+      msg("passwordMsg",r.message||"Password admin berhasil diubah.","success");
+      document.getElementById("newAdminPass").value="";
+      document.getElementById("confirmAdminPass").value="";
+    }catch(e){msg("passwordMsg",e.message)}
+  }
+  async function loadUsersAdmin(){
+    try{const r=await jsonp({action:"users",token:adminToken});adminUsers=r.data||[];renderUsersAdmin()}catch(e){msg("userAdminMsg",e.message)}
+  }
+  function renderUsersAdmin(){
+    if(!adminUsers.length){document.getElementById("usersTable").innerHTML='<div class="empty">Belum ada pelanggan. Tambahkan nama dan PIN di atas.</div>';return}
+    document.getElementById("usersTable").innerHTML=`<div class="table-wrap"><table><thead><tr><th>Nama</th><th>Aksi</th></tr></thead><tbody>${adminUsers.map(u=>`<tr><td><b>${esc(u.nama)}</b></td><td><div class="actions"><button class="btn secondary" onclick='prepareUserEdit(${JSON.stringify(u)})'>Reset PIN</button><button class="btn danger" onclick='deleteUserAdmin("${esc(u.nama)}")'>Hapus</button></div></td></tr>`).join("")}</tbody></table></div>`;
+  }
+  function prepareUserEdit(u){document.getElementById("uName").value=u.nama||"";document.getElementById("uPin").value="";document.getElementById("uPinConfirm").value="";document.getElementById("uPin").focus();msg("userAdminMsg",`Siap mengganti PIN untuk ${u.nama}.` ,"success");}
+  async function saveUserAdmin(){
+    const nama=document.getElementById("uName").value.trim(), pin=document.getElementById("uPin").value.trim(), conf=document.getElementById("uPinConfirm").value.trim();
+    msg("userAdminMsg","");
+    if(!nama)return msg("userAdminMsg","Nama pelanggan wajib diisi.");
+    if(!/^\d{4,8}$/.test(pin))return msg("userAdminMsg","PIN harus 4–8 angka.");
+    if(pin!==conf)return msg("userAdminMsg","Konfirmasi PIN tidak sama.");
+    try{const hash=await sha256(pin);const r=await jsonp({action:"saveUser",token:adminToken,data:JSON.stringify({nama,pinHash:hash})});msg("userAdminMsg",r.message||"PIN berhasil disimpan.","success");document.getElementById("uPin").value="";document.getElementById("uPinConfirm").value="";loadUsersAdmin()}catch(e){msg("userAdminMsg",e.message)}
+  }
+  async function deleteUserAdmin(nama){
+    if(!confirm(`Hapus akun PIN untuk ${nama}? Data hutang ${nama} tidak ikut dihapus.`))return;
+    try{await jsonp({action:"deleteUser",token:adminToken,name:nama});loadUsersAdmin()}catch(e){msg("userAdminMsg",e.message)}
+  }
+
+  function formatDateId(v){
+    if(!v)return "-";
+    const p=String(v).split("-");
+    if(p.length!==3)return esc(v);
+    return `${p[2]}/${p[1]}/${p[0]}`;
+  }
+  function addMonths(dateStr, months, forcedDay){
+    if(!dateStr)return "";
+    const p=dateStr.split("-").map(Number); if(p.length!==3)return "";
+    const d=new Date(p[0],p[1]-1+Number(months||0),1);
+    const target=Number(forcedDay)||p[2];
+    const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate(); d.setDate(Math.min(target,last));
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+  function dayFromDate(v){const p=String(v||"").split("-");return p.length===3?Number(p[2]):0;}
+  function firstDueFromStart(start,day){
+    const p=String(start||"").split("-").map(Number); if(p.length!==3)return "";
+    let y=p[0],m=p[1]-1;
+    let d=new Date(y,m,Math.min(day,31));
+    if(d<new Date(y,m,p[2])){m++; d=new Date(y,m,Math.min(day,31));}
+    const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate(); d.setDate(Math.min(day,last));
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+  function buildSchedule(x){
+    const total=Number(x.jumlah_angsuran)||0, paid=Number(x.angsuran_dibayar)||0, amount=Number(x.angsuran_per_bulan)||0;
+    const first=x.tanggal_jatuh_tempo_pertama;
+    return Array.from({length:total},(_,i)=>{
+      const due=addMonths(first,i,x.tanggal_jatuh_tempo_day);
+      return {ke:i+1,due,status:i<paid?"Lunas":(i===paid?"Berikutnya":"Belum"),amount};
+    });
+  }
+  function scheduleHtml(x, compact=false){
+    const schedule=buildSchedule(x);
+    if(!schedule.length)return '<div class="empty">Jadwal belum tersedia.</div>';
+    const rows=schedule.map(r=>`<tr><td>${r.ke}</td><td>${formatDateId(r.due)}</td><td>${money(r.amount)}</td><td><span class="badge ${r.status==="Lunas"?"lunas":r.status==="Berikutnya"?"berjalan":"terlambat"}">${r.status}</span></td></tr>`).join("");
+    return `<div class="table-wrap"><table style="min-width:${compact?"520px":"620px"}"><thead><tr><th>Ke-</th><th>Jatuh tempo</th><th>Nominal</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  function renderDebtCard(x, admin=false){
+    return `<div class="card" style="margin-bottom:12px">
+      <div class="user-head"><div><h3 style="margin-bottom:4px">${esc(x.nama)}</h3><div class="muted">${Number(x.jumlah_angsuran)||0} kali × ${money(x.angsuran_per_bulan)} = <b>${money(x.total_hutang)}</b></div></div>
+      <span class="badge ${String(x.status).toLowerCase()}">${esc(x.status)}</span></div>
+      <div class="stats" style="grid-template-columns:repeat(4,1fr);margin:12px 0">
+        <div class="stat"><span class="muted">Mulai</span><b style="font-size:15px">${formatDateId(x.tanggal_mulai_angsuran)}</b></div>
+        <div class="stat"><span class="muted">Jatuh tempo pertama</span><b style="font-size:15px">${formatDateId(x.tanggal_jatuh_tempo_pertama)}</b></div>
+        <div class="stat"><span class="muted">Sudah dibayar</span><b style="font-size:15px">${x.angsuran_dibayar}/${x.jumlah_angsuran}</b></div>
+        <div class="stat"><span class="muted">Sisa</span><b style="font-size:15px">${money(x.sisa)}</b></div>
+      </div>
+      <div class="muted" style="margin-bottom:8px">Angsuran berikutnya: <b>${x.sisa>0?formatDateId(x.jatuh_tempo_berikutnya):"Lunas"}</b> · Terakhir dibayar: <b>${formatDateId(x.tanggal_angsuran_terakhir)}</b></div>
+      ${scheduleHtml(x,!admin)}
+      ${x.catatan?`<p class="muted" style="margin:10px 0 0">Catatan: ${esc(x.catatan)}</p>`:""}
+      ${admin?`<div class="actions" style="margin-top:10px">${Number(x.angsuran_dibayar)<Number(x.jumlah_angsuran)?`<button class="btn primary" onclick='openPaymentModalById("${esc(x.id)}")'>💵 Bayar Angsuran</button>`:`<button class="btn ghost" disabled>✓ Semua Lunas</button>`}<button class="btn secondary" onclick='editDebt(${JSON.stringify(x)})'>Edit</button><button class="btn danger" onclick='deleteDebt("${esc(x.id)}")'>Hapus</button></div>`:""}
+    </div>`;
+  }
+
+  function openPaymentModalById(id){
+    const x=adminData.find(r=>String(r.id)===String(id));
+    if(!x)return alert("Data hutang tidak ditemukan.");
+    if(Number(x.angsuran_dibayar)>=Number(x.jumlah_angsuran))return alert("Semua angsuran sudah lunas.");
+    paymentDebtId=x.id;
+    const next=Number(x.angsuran_dibayar)+1;
+    document.getElementById("paymentInfo").innerHTML=`<b>${esc(x.nama)}</b><br>Angsuran ke-${next} dari ${x.jumlah_angsuran} · ${money(x.angsuran_per_bulan)}<br>Jatuh tempo: <b>${formatDateId(x.jatuh_tempo_berikutnya)}</b>`;
+    const d=new Date();
+    document.getElementById("paymentDate").value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    msg("paymentMsg","");
+    show("paymentModal");
+    document.getElementById("paymentDate").focus();
+  }
+  function closePaymentModal(){paymentDebtId="";hide("paymentModal");msg("paymentMsg","");}
+  async function submitPayment(){
+    if(!paymentDebtId)return;
+    const date=document.getElementById("paymentDate").value;
+    if(!date)return msg("paymentMsg","Tanggal pembayaran wajib diisi.");
+    try{
+      const r=await jsonp({action:"payInstallment",token:adminToken,id:paymentDebtId,tanggalPembayaran:date});
+      closePaymentModal();
+      msg("adminMsg",`Angsuran ke-${r.data.angsuran_dibayar} untuk ${r.data.nama} berhasil dicatat sebagai pembayaran tanggal ${formatDateId(date)}.`,"success");
+      loadAdmin();
+    }catch(e){msg("paymentMsg",e.message)}
+  }
+
+  function renderAdmin(){
+    const fm=document.getElementById("filterMonth").value, fn=document.getElementById("filterName").value.trim().toLowerCase(), fs=document.getElementById("filterStatus").value;
+    const rows=adminData.filter(x=>{
+      const schedule=buildSchedule(x);
+      const monthMatch=!fm||schedule.some(r=>String(r.due).slice(0,7)===fm);
+      return monthMatch&&(!fn||String(x.nama).toLowerCase().includes(fn))&&(!fs||x.status===fs);
+    });
+    let total=0,paid=0;
+    adminData.forEach(x=>{total+=Number(x.total_hutang)||0;paid+=Number(x.terbayar)||0});
+    document.getElementById("sCount").textContent=adminData.length;
+    document.getElementById("sTotal").textContent=money(total);
+    document.getElementById("sPaid").textContent=money(paid);
+    document.getElementById("sRemain").textContent=money(total-paid);
+    document.getElementById("adminTable").innerHTML=rows.length?rows.map(x=>renderDebtCard(x,true)).join(""):'<div class="empty">Tidak ada data.</div>';
+  }
+
+  function updateCalculatedTotal(){
+    const n=Number(document.getElementById("fInstallments").value)||0, a=Number(document.getElementById("fInstallmentAmount").value)||0;
+    document.getElementById("fTotalPreview").value=money(n*a);
+    updateSchedulePreview();
+  }
+  function updateSchedulePreview(){
+    const start=document.getElementById("fStart").value, day=Number(document.getElementById("fDueDay").value)||0, n=Number(document.getElementById("fInstallments").value)||0, amount=Number(document.getElementById("fInstallmentAmount").value)||0;
+    const editingId=document.getElementById("editId").value;
+    const existing=editingId ? adminData.find(r=>String(r.id)===String(editingId)) : null;
+    const paid=existing ? Number(existing.angsuran_dibayar)||0 : 0;
+    if(!start||!day||day<1||day>31||n<1||amount<=0){document.getElementById("schedulePreview").innerHTML="";return}
+    const first=firstDueFromStart(start,day);
+    const x={tanggal_jatuh_tempo_pertama:first,tanggal_jatuh_tempo_day:day,jumlah_angsuran:n,angsuran_per_bulan:amount,angsuran_dibayar:Math.min(paid,n)};
+    document.getElementById("schedulePreview").innerHTML=scheduleHtml(x,true);
+  }
+  function editDebt(x){
+    document.getElementById("editId").value=x.id||"";
+    document.getElementById("fName").value=x.nama||"";
+    document.getElementById("fStart").value=x.tanggal_mulai_angsuran||"";
+    document.getElementById("fDueDay").value=x.tanggal_jatuh_tempo_day||dayFromDate(x.tanggal_jatuh_tempo_pertama)||5;
+    document.getElementById("fInstallments").value=x.jumlah_angsuran||1;
+    document.getElementById("fInstallmentAmount").value=x.angsuran_per_bulan||0;
+    document.getElementById("fStatus").value=x.status||"Berjalan";
+    document.getElementById("fNote").value=x.catatan||"";
+    updateCalculatedTotal();
+    document.getElementById("formTitle").textContent="Edit Hutang";
+    show("cancelEdit");window.scrollTo({top:0,behavior:"smooth"});
+  }
+  function resetForm(){
+    ["editId","fName","fStart","fDueDay","fInstallmentAmount","fNote"].forEach(id=>document.getElementById(id).value="");
+    document.getElementById("fInstallments").value=12;
+    document.getElementById("fDueDay").value="";
+    document.getElementById("fStatus").value="Berjalan";
+    document.getElementById("fTotalPreview").value=money(0);
+    document.getElementById("schedulePreview").innerHTML="";
+    document.getElementById("formTitle").textContent="Tambah Hutang";
+    hide("cancelEdit");msg("adminMsg","");
+  }
+  async function saveDebt(){
+    const d={
+      id:document.getElementById("editId").value,
+      nama:document.getElementById("fName").value.trim(),
+      tanggal_mulai_angsuran:document.getElementById("fStart").value,
+      tanggal_jatuh_tempo_day:document.getElementById("fDueDay").value,
+      jumlah_angsuran:document.getElementById("fInstallments").value,
+      angsuran_per_bulan:document.getElementById("fInstallmentAmount").value,
+      status:document.getElementById("fStatus").value,
+      catatan:document.getElementById("fNote").value.trim()
+    };
+    if(!d.nama||!d.tanggal_mulai_angsuran||Number(d.tanggal_jatuh_tempo_day)<1||Number(d.tanggal_jatuh_tempo_day)>31||Number(d.jumlah_angsuran)<1||Number(d.angsuran_per_bulan)<=0)return msg("adminMsg","Nama, tanggal mulai, tanggal jatuh tempo tiap bulan, jumlah angsuran, dan angsuran per bulan wajib diisi.");
+    if(Number(d.angsuran_dibayar)>Number(d.jumlah_angsuran))return msg("adminMsg","Angsuran dibayar tidak boleh lebih banyak dari jumlah angsuran.");
+    try{await jsonp({action:d.id?"update":"create",token:adminToken,data:JSON.stringify(d)});msg("adminMsg","Data berhasil disimpan. Jadwal angsuran dibuat otomatis.","success");resetForm();loadAdmin()}catch(e){msg("adminMsg",e.message)}
+  }
+  async function deleteDebt(id){
+    if(!confirm("Hapus data hutang ini?"))return;
+    try{await jsonp({action:"delete",token:adminToken,id});loadAdmin()}catch(e){alert(e.message)}
+  }
+  function clearFilters(){document.getElementById("filterMonth").value="";document.getElementById("filterName").value="";document.getElementById("filterStatus").value="";renderAdmin()}
+  document.getElementById("userName").addEventListener("keydown",e=>{if(e.key==="Enter")document.getElementById("userPin").focus()});
+  document.getElementById("userPin").addEventListener("keydown",e=>{if(e.key==="Enter")loginUser()});
+  document.getElementById("adminPass").addEventListener("keydown",e=>{if(e.key==="Enter")loginAdmin()});
+  ["fInstallments","fInstallmentAmount","fStart","fDueDay"].forEach(id=>document.getElementById(id).addEventListener("input",updateCalculatedTotal));
+
+</script>
+</body>
+</html>
