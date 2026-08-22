@@ -29,7 +29,7 @@
     <div class="card">
       <div class="logo">📒</div>
       <h1>Catatan Hutang</h1>
-      <p class="muted">Masukkan nama untuk melihat rincian hutang. Admin dapat mengelola semua data.</p>
+      <p class="muted">Masukkan nama dan PIN untuk melihat rincian hutang Anda.</p>
       <div id="loginMsg"></div>
       <div style="margin:14px 0">
         <label>Nama</label><input id="userName" placeholder="Contoh: Budi" autocomplete="name">
@@ -97,6 +97,30 @@
     </div>
 
     <div class="card">
+      <h2>🔑 Ganti Password Admin</h2>
+      <p class="muted">Password baru akan langsung disimpan ke sheet <b>Pengaturan</b>. Minimal 8 karakter.</p>
+      <div id="passwordMsg"></div>
+      <div class="grid">
+        <div><label>Password baru *</label><input id="newAdminPass" type="password" autocomplete="new-password" placeholder="Minimal 8 karakter"></div>
+        <div><label>Ulangi password baru *</label><input id="confirmAdminPass" type="password" autocomplete="new-password" placeholder="Ketik ulang password"></div>
+      </div>
+      <div class="actions" style="margin-top:12px"><button class="btn primary" onclick="changeAdminPassword()">Simpan Password</button></div>
+    </div>
+
+    <div class="card">
+      <h2>👤 Pelanggan & PIN</h2>
+      <p class="muted">Buat pelanggan atau reset PIN mereka. PIN tidak ditampilkan kembali setelah disimpan.</p>
+      <div id="userAdminMsg"></div>
+      <div class="grid">
+        <div><label>Nama pelanggan *</label><input id="uName" placeholder="Nama pelanggan"></div>
+        <div><label>PIN *</label><input id="uPin" type="password" inputmode="numeric" maxlength="8" placeholder="4–8 angka"></div>
+        <div><label>Ulangi PIN *</label><input id="uPinConfirm" type="password" inputmode="numeric" maxlength="8" placeholder="Ketik ulang PIN"></div>
+        <div style="display:flex;align-items:end"><button class="btn primary" onclick="saveUserAdmin()">Simpan / Reset PIN</button></div>
+      </div>
+      <div id="usersTable" style="margin-top:14px"></div>
+    </div>
+
+    <div class="card">
       <div class="top">
         <div><h2 style="margin-bottom:2px">Data Hutang</h2><div class="muted">Filter per bulan, nama, atau status.</div></div>
         <button class="btn ghost" onclick="loadAdmin()">↻ Refresh</button>
@@ -115,7 +139,7 @@
 <script>
   // GANTI URL INI dengan URL Web App Google Apps Script Anda.
   const API_URL = "PASTE_URL_APPS_SCRIPT_DI_SINI";
-  let adminToken = "", adminData = [], currentUser = "";
+  let adminToken = "", adminData = [], adminUsers = [], currentUser = "", userToken = "";
 
   function money(n){return new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(Number(n)||0)}
   function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
@@ -124,7 +148,7 @@
   function hide(id){document.getElementById(id).classList.add("hidden")}
   function backLogin(){hide("adminLoginView");show("loginView")}
   function showAdminLogin(){hide("loginView");show("adminLoginView");document.getElementById("adminPass").focus()}
-  function logout(){adminToken="";adminData=[];currentUser="";hide("userView");hide("adminView");hide("adminLoginView");show("loginView");document.getElementById("adminPass").value=""}
+  function logout(){adminToken="";adminData=[];adminUsers=[];currentUser="";userToken="";hide("userView");hide("adminView");hide("adminLoginView");show("loginView");document.getElementById("adminPass").value=""}
 
   async function sha256(text){
     const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
@@ -147,13 +171,17 @@
 
   async function loginUser(){
     const name=document.getElementById("userName").value.trim();
+    const pin=document.getElementById("userPin").value.trim();
     msg("loginMsg","");
-    if(!name)return msg("loginMsg","Nama wajib diisi.");
+    if(!name||!pin)return msg("loginMsg","Nama dan PIN wajib diisi.");
+    if(!/^\d{4,8}$/.test(pin))return msg("loginMsg","PIN harus 4–8 angka.");
     try{
-      const r=await jsonp({action:"user",name});
-      currentUser=name;document.getElementById("userTitle").textContent=name;hide("loginView");show("userView");renderUser(r.data||[]);
+      const hash=await sha256(pin);
+      const r=await jsonp({action:"userLogin",name,pinHash:hash});
+      userToken=r.token;currentUser=r.name;document.getElementById("userTitle").textContent=currentUser;hide("loginView");show("userView");document.getElementById("userPin").value="";renderUser(r.data||[]);
     }catch(e){msg("loginMsg",e.message)}
   }
+
   async function loadUser(){
     try{const r=await jsonp({action:"user",name:currentUser});renderUser(r.data||[])}catch(e){alert(e.message)}
   }
@@ -177,8 +205,43 @@
   }
 
   async function loadAdmin(){
-    try{const r=await jsonp({action:"adminData",token:adminToken});adminData=r.data||[];renderAdmin()}catch(e){alert(e.message);if(/login|token/i.test(e.message))logout()}
+    try{const r=await jsonp({action:"adminData",token:adminToken});adminData=r.data||[];renderAdmin();loadUsersAdmin()}catch(e){alert(e.message);if(/login|token/i.test(e.message))logout()}
   }
+  async function changeAdminPassword(){
+    const pass=document.getElementById("newAdminPass").value;
+    const confirmPass=document.getElementById("confirmAdminPass").value;
+    msg("passwordMsg","");
+    if(pass.length<8)return msg("passwordMsg","Password baru minimal 8 karakter.");
+    if(pass!==confirmPass)return msg("passwordMsg","Konfirmasi password tidak sama.");
+    if(!confirm("Yakin ingin mengganti password admin?"))return;
+    try{
+      const r=await jsonp({action:"changePassword",token:adminToken,newPassword:pass});
+      msg("passwordMsg",r.message||"Password admin berhasil diubah.","success");
+      document.getElementById("newAdminPass").value="";
+      document.getElementById("confirmAdminPass").value="";
+    }catch(e){msg("passwordMsg",e.message)}
+  }
+  async function loadUsersAdmin(){
+    try{const r=await jsonp({action:"users",token:adminToken});adminUsers=r.data||[];renderUsersAdmin()}catch(e){msg("userAdminMsg",e.message)}
+  }
+  function renderUsersAdmin(){
+    if(!adminUsers.length){document.getElementById("usersTable").innerHTML='<div class="empty">Belum ada pelanggan. Tambahkan nama dan PIN di atas.</div>';return}
+    document.getElementById("usersTable").innerHTML=`<div class="table-wrap"><table><thead><tr><th>Nama</th><th>Aksi</th></tr></thead><tbody>${adminUsers.map(u=>`<tr><td><b>${esc(u.nama)}</b></td><td><div class="actions"><button class="btn secondary" onclick='prepareUserEdit(${JSON.stringify(u)})'>Reset PIN</button><button class="btn danger" onclick='deleteUserAdmin("${esc(u.nama)}")'>Hapus</button></div></td></tr>`).join("")}</tbody></table></div>`;
+  }
+  function prepareUserEdit(u){document.getElementById("uName").value=u.nama||"";document.getElementById("uPin").value="";document.getElementById("uPinConfirm").value="";document.getElementById("uPin").focus();msg("userAdminMsg",`Siap mengganti PIN untuk ${u.nama}.` ,"success");}
+  async function saveUserAdmin(){
+    const nama=document.getElementById("uName").value.trim(), pin=document.getElementById("uPin").value.trim(), conf=document.getElementById("uPinConfirm").value.trim();
+    msg("userAdminMsg","");
+    if(!nama)return msg("userAdminMsg","Nama pelanggan wajib diisi.");
+    if(!/^\d{4,8}$/.test(pin))return msg("userAdminMsg","PIN harus 4–8 angka.");
+    if(pin!==conf)return msg("userAdminMsg","Konfirmasi PIN tidak sama.");
+    try{const hash=await sha256(pin);const r=await jsonp({action:"saveUser",token:adminToken,data:JSON.stringify({nama,pinHash:hash})});msg("userAdminMsg",r.message||"PIN berhasil disimpan.","success");document.getElementById("uPin").value="";document.getElementById("uPinConfirm").value="";loadUsersAdmin()}catch(e){msg("userAdminMsg",e.message)}
+  }
+  async function deleteUserAdmin(nama){
+    if(!confirm(`Hapus akun PIN untuk ${nama}? Data hutang ${nama} tidak ikut dihapus.`))return;
+    try{await jsonp({action:"deleteUser",token:adminToken,name:nama});loadUsersAdmin()}catch(e){msg("userAdminMsg",e.message)}
+  }
+
   function renderAdmin(){
     const fm=document.getElementById("filterMonth").value, fn=document.getElementById("filterName").value.trim().toLowerCase(), fs=document.getElementById("filterStatus").value;
     const rows=adminData.filter(x=>(!fm||x.bulan===fm)&&(!fn||String(x.nama).toLowerCase().includes(fn))&&(!fs||x.status===fs));
@@ -211,7 +274,8 @@
     try{await jsonp({action:"delete",token:adminToken,id});loadAdmin()}catch(e){alert(e.message)}
   }
   function clearFilters(){document.getElementById("filterMonth").value="";document.getElementById("filterName").value="";document.getElementById("filterStatus").value="";renderAdmin()}
-  document.getElementById("userName").addEventListener("keydown",e=>{if(e.key==="Enter")loginUser()});
+  document.getElementById("userName").addEventListener("keydown",e=>{if(e.key==="Enter")document.getElementById("userPin").focus()});
+  document.getElementById("userPin").addEventListener("keydown",e=>{if(e.key==="Enter")loginUser()});
   document.getElementById("adminPass").addEventListener("keydown",e=>{if(e.key==="Enter")loginAdmin()});
 </script>
 </body>
