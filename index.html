@@ -134,7 +134,7 @@
 
     <div class="card">
       <div class="top">
-        <div><h2 style="margin-bottom:2px">📥 Permintaan Bayar dari User</h2><div class="muted">Admin bisa menyetujui atau menolak pembayaran yang dikirim pelanggan.</div></div>
+        <div><h2 style="margin-bottom:2px">📥 Permintaan Bayar dari User <span id="pendingPaymentCount" class="badge terlambat" style="margin-left:8px">0</span></h2><div class="muted">Admin bisa menyetujui atau menolak pembayaran yang dikirim pelanggan.</div></div>
         <button class="btn ghost" onclick="loadAdmin()">↻ Refresh</button>
       </div>
       <div id="paymentRequestsTable"></div>
@@ -190,7 +190,7 @@
 
 <script>
   // GANTI URL INI dengan URL Web App Google Apps Script Anda.
-  const API_URL = "https://script.google.com/macros/s/AKfycbzqZ5tFIq0b05rXNImp9SeeQcDf5urg-znOau30WDp0hBprE8Mo8B6lUFOzgHDKppvO/exec";
+  const API_URL = "PASTE_URL_APPS_SCRIPT_DI_SINI";
   let adminToken = "", adminData = [], adminUsers = [], adminPaymentRequests = [], currentUser = "", userToken = "", paymentDebtId = "", userPaymentDebtId = "";
   const USER_SESSION_KEY = "catatan_hutang_user_session_v1";
 
@@ -323,7 +323,7 @@
   }
   function renderPaymentRequests(){
     const box=document.getElementById("paymentRequestsTable");
-    const pending=adminPaymentRequests.filter(r=>r.status==='Menunggu Persetujuan');
+    const pending=adminPaymentRequests.filter(r=>r.status==='Menunggu Persetujuan'); const counter=document.getElementById('pendingPaymentCount'); if(counter) counter.textContent=pending.length;
     if(!pending.length){box.innerHTML='<div class="empty" style="padding:20px">Tidak ada permintaan pembayaran yang menunggu.</div>';return}
     box.innerHTML='<div class="table-wrap"><table style="min-width:1000px"><thead><tr><th>Nama</th><th>Barang</th><th>Angsuran</th><th>Nominal</th><th>Tanggal bayar</th><th>Bukti</th><th>Aksi</th></tr></thead><tbody>'+pending.map(r=>{
       const debt=adminData.find(x=>String(x.id)===String(r.hutang_id));
@@ -334,7 +334,7 @@
     let alasan='';
     if(decision==='Tidak') alasan=prompt('Alasan penolakan (boleh dikosongkan):')||'';
     if(!confirm(decision==='Ya'?'Setujui pembayaran ini? Jika Ya, angsuran otomatis masuk.':'Tolak pembayaran ini? Angsuran TIDAK akan masuk.'))return;
-    try{const action=decision==='Ya'?'approvePaymentRequest':'rejectPaymentRequest';await jsonp({action,token:adminToken,id,alasan});msg('adminMsg',decision==='Ya'?'Pembayaran disetujui dan angsuran otomatis masuk.':'Pembayaran ditolak. Angsuran tidak berubah.','success');loadAdmin();}catch(e){msg('adminMsg',e.message)}
+    try{const action=decision==='Ya'?'approvePaymentRequest':'rejectPaymentRequest'; const r=await jsonp({action,token:adminToken,id,alasan}); msg('adminMsg',decision==='Ya'?'Pembayaran disetujui. Angsuran otomatis masuk.':'Pembayaran ditolak. Angsuran tidak berubah.','success'); await loadAdmin();}catch(e){msg('adminMsg','Gagal memproses pembayaran: '+(e.message||e),'error')}
   }
 
   async function loadUsersAdmin(){
