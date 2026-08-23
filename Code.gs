@@ -116,7 +116,7 @@ function doGet(e) {
       case 'create': requireToken_(p.token); result = {ok:true, data:save_(JSON.parse(p.data), false)}; break;
       case 'update': requireToken_(p.token); result = {ok:true, data:save_(JSON.parse(p.data), true)}; break;
       case 'payInstallment': requireToken_(p.token); result = {ok:true, data:payInstallment_(p.id,p.tanggalPembayaran)}; break;
-      case 'approvePaymentRequest': requireToken_(p.token); result = {ok:true, data:reviewPaymentRequest_(p.id,'Ya',p.alasan||'')}; break;
+      case 'approvePaymentRequest': requireToken_(p.token); result = {ok:true, data:approvePaymentRequest_(p.id)}; break;
       case 'rejectPaymentRequest': requireToken_(p.token); result = {ok:true, data:reviewPaymentRequest_(p.id,'Tidak',p.alasan||'')}; break;
       case 'requestStatus': result = {ok:true, data:getRequestByIdForUser_(p.token,p.id)}; break;
       case 'delete': requireToken_(p.token); result = {ok:true, data:delete_(p.id)}; break;
@@ -344,36 +344,69 @@ function submitPaymentRequest_(p){
   getRequestsSheet_().appendRow(REQUEST_HEADERS.map(h=>req[h]??''));
   return {ok:true,id,status:req.status};
 }
-function reviewPaymentRequest_(id,decision,reason){
-  // Jangan mengambil ScriptLock di sini karena persetujuan YA memanggil
-  // applyPayment_(), yang sudah mengambil ScriptLock sendiri. Lock bertingkat
-  // menyebabkan tombol Setujui gagal/timeout.
-  const sh=getRequestsSheet_(),last=sh.getLastRow();
-  if(last<2)throw new Error('Permintaan tidak ditemukan.');
-  const rows=sh.getRange(2,1,last-1,REQUEST_HEADERS.length).getValues();
-  const i=rows.findIndex(r=>String(r[0])===String(id));
-  if(i<0)throw new Error('Permintaan tidak ditemukan.');
-  const req=requestRowToObject_(rows[i]);
-  if(req.status!=='Menunggu Persetujuan')throw new Error('Permintaan ini sudah diproses.');
+function approvePaymentRequest_(id){
+  const lock=LockService.getScriptLock();
+  lock.waitLock(15000);
+  try{
+    const ss=SpreadsheetApp.getActiveSpreadsheet();
+    const reqSh=getRequestsSheet_();
+    const last=reqSh.getLastRow();
+    if(last<2) throw new Error('Permintaan pembayaran tidak ditemukan.');
+    const rows=reqSh.getRange(2,1,last-1,REQUEST_HEADERS.length).getValues();
+    const idx=rows.findIndex(r=>String(r[0])===String(id));
+    if(idx<0) throw new Error('Permintaan pembayaran tidak ditemukan.');
+    const req=requestRowToObject_(rows[idx]);
+    if(req.status!=='Menunggu Persetujuan') throw new Error('Permintaan ini sudah diproses.');
 
-  if(decision==='Ya'){
-    // applyPayment_ melakukan validasi dan update Hutang + Pembayaran secara atomik.
-    const paidResult=applyPayment_(req.hutang_id,req.tanggal_pembayaran);
-    rows[i][REQUEST_HEADERS.indexOf('status')]='Disetujui';
-    rows[i][REQUEST_HEADERS.indexOf('alasan_admin')]=String(reason||'');
-    rows[i][REQUEST_HEADERS.indexOf('updated_at')]=new Date();
-    sh.getRange(i+2,1,1,REQUEST_HEADERS.length).setValues([rows[i]]);
-    return {request:requestRowToObject_(rows[i]),debt:paidResult};
-  }
+    const debtRow=findRowById_(req.hutang_id);
+    if(!debtRow) throw new Error('Data kredit untuk pembayaran ini tidak ditemukan.');
+    const debtSh=getSheet_();
+    const obj=rowToObject_(debtSh.getRange(debtRow,1,1,HEADERS.length).getValues()[0]);
+    const paid=Number(obj.angsuran_dibayar)||0;
+    const total=Number(obj.jumlah_angsuran)||0;
+    if(paid>=total) throw new Error('Kredit ini sudah lunas.');
+    if(Number(req.angsuran_ke)!==paid+1) throw new Error('Urutan angsuran tidak sesuai. Refresh dashboard lalu coba lagi.');
 
-  if(decision==='Tidak'){
-    rows[i][REQUEST_HEADERS.indexOf('status')]='Ditolak';
-    rows[i][REQUEST_HEADERS.indexOf('alasan_admin')]=String(reason||'');
-    rows[i][REQUEST_HEADERS.indexOf('updated_at')]=new Date();
-    sh.getRange(i+2,1,1,REQUEST_HEADERS.length).setValues([rows[i]]);
-    return {request:requestRowToObject_(rows[i])};
+    const paymentSh=ss.getSheetByName(PAYMENTS_SHEET_NAME);
+    if(!paymentSh) throw new Error('Sheet Pembayaran belum ada. Jalankan setup().');
+    const paymentId=Utilities.getUuid();
+    paymentSh.appendRow([paymentId,obj.id,obj.nama,paid+1,Number(obj.angsuran_per_bulan)||0,req.tanggal_pembayaran,new Date()]);
+
+    obj.angsuran_dibayar=paid+1;
+    obj.tanggal_angsuran_terakhir=req.tanggal_pembayaran;
+    obj.status=(paid+1)>=total?'Lunas':'Berjalan';
+    obj.updated_at=new Date().toISOString();
+    debtSh.getRange(debtRow,1,1,HEADERS.length).setValues([objectToRow_(obj)]);
+
+    rows[idx][REQUEST_HEADERS.indexOf('status')]='Disetujui';
+    rows[idx][REQUEST_HEADERS.indexOf('alasan_admin')]='Disetujui admin';
+    rows[idx][REQUEST_HEADERS.indexOf('updated_at')]=new Date();
+    reqSh.getRange(idx+2,1,1,REQUEST_HEADERS.length).setValues([rows[idx]]);
+    return {request:requestRowToObject_(rows[idx]),debt:rowToObject_(debtSh.getRange(debtRow,1,1,HEADERS.length).getValues()[0])};
+  }finally{
+    lock.releaseLock();
   }
-  throw new Error('Keputusan admin tidak valid.');
+}
+
+function rejectPaymentRequest_(id,reason){
+  const lock=LockService.getScriptLock();
+  lock.waitLock(15000);
+  try{
+    const sh=getRequestsSheet_(),last=sh.getLastRow();
+    if(last<2) throw new Error('Permintaan pembayaran tidak ditemukan.');
+    const rows=sh.getRange(2,1,last-1,REQUEST_HEADERS.length).getValues();
+    const idx=rows.findIndex(r=>String(r[0])===String(id));
+    if(idx<0) throw new Error('Permintaan pembayaran tidak ditemukan.');
+    const req=requestRowToObject_(rows[idx]);
+    if(req.status!=='Menunggu Persetujuan') throw new Error('Permintaan ini sudah diproses.');
+    rows[idx][REQUEST_HEADERS.indexOf('status')]='Ditolak';
+    rows[idx][REQUEST_HEADERS.indexOf('alasan_admin')]=String(reason||'Ditolak admin');
+    rows[idx][REQUEST_HEADERS.indexOf('updated_at')]=new Date();
+    sh.getRange(idx+2,1,1,REQUEST_HEADERS.length).setValues([rows[idx]]);
+    return {request:requestRowToObject_(rows[idx])};
+  }finally{
+    lock.releaseLock();
+  }
 }
 
 function delete_(id){const row=findRowById_(id);if(!row)throw new Error('Data tidak ditemukan.');getSheet_().deleteRow(row);return {id:id};}
