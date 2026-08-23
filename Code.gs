@@ -345,19 +345,35 @@ function submitPaymentRequest_(p){
   return {ok:true,id,status:req.status};
 }
 function reviewPaymentRequest_(id,decision,reason){
-  const lock=LockService.getScriptLock();lock.waitLock(10000);
-  try{
-    const sh=getRequestsSheet_(),last=sh.getLastRow();if(last<2)throw new Error('Permintaan tidak ditemukan.');
-    const rows=sh.getRange(2,1,last-1,REQUEST_HEADERS.length).getValues();const i=rows.findIndex(r=>String(r[0])===String(id));if(i<0)throw new Error('Permintaan tidak ditemukan.');
-    const req=requestRowToObject_(rows[i]); if(req.status!=='Menunggu Persetujuan')throw new Error('Permintaan ini sudah diproses.');
-    if(decision==='Ya'){
-      const paidResult=applyPayment_(req.hutang_id,req.tanggal_pembayaran);
-      rows[i][REQUEST_HEADERS.indexOf('status')]='Disetujui'; rows[i][REQUEST_HEADERS.indexOf('alasan_admin')]=String(reason||''); rows[i][REQUEST_HEADERS.indexOf('updated_at')]=new Date();
-      sh.getRange(i+2,1,1,REQUEST_HEADERS.length).setValues([rows[i]]); return {request:req,debt:paidResult};
-    }
-    rows[i][REQUEST_HEADERS.indexOf('status')]='Ditolak'; rows[i][REQUEST_HEADERS.indexOf('alasan_admin')]=String(reason||''); rows[i][REQUEST_HEADERS.indexOf('updated_at')]=new Date();
-    sh.getRange(i+2,1,1,REQUEST_HEADERS.length).setValues([rows[i]]); return {request:requestRowToObject_(rows[i])};
-  } finally {lock.releaseLock();}
+  // Jangan mengambil ScriptLock di sini karena persetujuan YA memanggil
+  // applyPayment_(), yang sudah mengambil ScriptLock sendiri. Lock bertingkat
+  // menyebabkan tombol Setujui gagal/timeout.
+  const sh=getRequestsSheet_(),last=sh.getLastRow();
+  if(last<2)throw new Error('Permintaan tidak ditemukan.');
+  const rows=sh.getRange(2,1,last-1,REQUEST_HEADERS.length).getValues();
+  const i=rows.findIndex(r=>String(r[0])===String(id));
+  if(i<0)throw new Error('Permintaan tidak ditemukan.');
+  const req=requestRowToObject_(rows[i]);
+  if(req.status!=='Menunggu Persetujuan')throw new Error('Permintaan ini sudah diproses.');
+
+  if(decision==='Ya'){
+    // applyPayment_ melakukan validasi dan update Hutang + Pembayaran secara atomik.
+    const paidResult=applyPayment_(req.hutang_id,req.tanggal_pembayaran);
+    rows[i][REQUEST_HEADERS.indexOf('status')]='Disetujui';
+    rows[i][REQUEST_HEADERS.indexOf('alasan_admin')]=String(reason||'');
+    rows[i][REQUEST_HEADERS.indexOf('updated_at')]=new Date();
+    sh.getRange(i+2,1,1,REQUEST_HEADERS.length).setValues([rows[i]]);
+    return {request:requestRowToObject_(rows[i]),debt:paidResult};
+  }
+
+  if(decision==='Tidak'){
+    rows[i][REQUEST_HEADERS.indexOf('status')]='Ditolak';
+    rows[i][REQUEST_HEADERS.indexOf('alasan_admin')]=String(reason||'');
+    rows[i][REQUEST_HEADERS.indexOf('updated_at')]=new Date();
+    sh.getRange(i+2,1,1,REQUEST_HEADERS.length).setValues([rows[i]]);
+    return {request:requestRowToObject_(rows[i])};
+  }
+  throw new Error('Keputusan admin tidak valid.');
 }
 
 function delete_(id){const row=findRowById_(id);if(!row)throw new Error('Data tidak ditemukan.');getSheet_().deleteRow(row);return {id:id};}
