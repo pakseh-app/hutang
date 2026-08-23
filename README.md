@@ -45,3 +45,7 @@ Input bukti memakai `accept="image/*"`, sehingga pengguna dapat memilih foto/gam
 
 ### Login otomatis user
 User yang sudah berhasil login akan disimpan di perangkat menggunakan localStorage. Saat aplikasi dibuka kembali, sesi user dipulihkan otomatis. Jika token server sudah kedaluwarsa, aplikasi melakukan login ulang otomatis menggunakan hash PIN yang tersimpan di perangkat. Tombol Keluar menghapus sesi tersimpan.
+
+
+## Versi 11 - Banyak Kredit per Pelanggan
+Satu nama pelanggan dapat memiliki banyak data kredit secara terpisah. Setiap barang/kredit mempunyai ID sendiri sehingga nominal angsuran, jumlah cicilan, tanggal mulai, tanggal jatuh tempo, pembayaran, dan bukti transfer tidak tercampur. User melihat semua kredit miliknya sebagai kartu terpisah. Admin dapat membuat kredit baru dengan mengetik nama pelanggan yang sama.
