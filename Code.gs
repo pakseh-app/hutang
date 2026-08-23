@@ -56,10 +56,10 @@ function setup() {
   if (!settings) settings = ss.insertSheet(SETTINGS_SHEET_NAME);
   if (settings.getLastRow() === 0) {
     settings.getRange('A1:B1').setValues([['Kunci','Nilai']]);
-    settings.getRange('A2:B2').setValues([['ADMIN_PASSWORD','admin123']]);
+    settings.getRange('A2:B2').setValues([['ADMIN_PASSWORD','1234']]);
   } else if (!settings.getRange('A1').getValue()) {
     settings.getRange('A1:B1').setValues([['Kunci','Nilai']]);
-    settings.getRange('A2:B2').setValues([['ADMIN_PASSWORD','admin123']]);
+    settings.getRange('A2:B2').setValues([['ADMIN_PASSWORD','1234']]);
   }
   if (!settings.getRange('A3').getValue()) {
     const folder = DriveApp.createFolder('Bukti Transfer Catatan Hutang');
@@ -158,7 +158,7 @@ function getSettingsSheet_() {
 function getAdminPassword_() { return String(getSettingsSheet_().getRange('B2').getDisplayValue() || '').trim(); }
 function changeAdminPassword_(newPassword) {
   const password = String(newPassword || '').trim();
-  if (password.length < 8) throw new Error('Password baru minimal 8 karakter.');
+  if (!/^\d{4}$/.test(password)) throw new Error('Password admin harus tepat 4 angka.');
   getSettingsSheet_().getRange('B2').setValue(password);
   return {ok:true,message:'Password admin berhasil diubah.'};
 }
