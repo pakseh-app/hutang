@@ -54,6 +54,11 @@
       <div class="user-head"><div><div class="muted">Total sisa hutang</div><div id="userTotal" class="amount">Rp 0</div></div><button class="btn ghost" onclick="loadUser()">↻ Refresh</button></div>
     </div>
     <div class="card">
+      <h2>📤 Permintaan Pembayaran</h2>
+      <p class="muted">Klik <b>Bayar</b> pada hutang Anda, upload bukti transfer dari galeri HP, lalu tunggu persetujuan admin.</p>
+      <div id="userRequests"></div>
+    </div>
+    <div class="card">
       <h2>Rincian Hutang</h2>
       <div id="userTable"></div>
     </div>
@@ -87,6 +92,7 @@
       <input id="editId" type="hidden">
       <div class="grid">
         <div><label>Nama *</label><input id="fName" placeholder="Nama pelanggan"></div>
+        <div><label>Nama barang *</label><input id="fBarang" placeholder="Contoh: Mesin Cuci, HP, TV"></div>
         <div><label>Tanggal mulai angsuran *</label><input id="fStart" type="date"></div>
         <div><label>Tanggal jatuh tempo tiap bulan *</label><input id="fDueDay" type="number" min="1" max="31" step="1" placeholder="5" oninput="updateCalculatedTotal()"></div>
         <div><label>Jumlah kali angsuran *</label><input id="fInstallments" type="number" min="1" step="1" value="12" placeholder="12"></div>
@@ -128,6 +134,14 @@
 
     <div class="card">
       <div class="top">
+        <div><h2 style="margin-bottom:2px">📥 Permintaan Bayar dari User</h2><div class="muted">Admin bisa menyetujui atau menolak pembayaran yang dikirim pelanggan.</div></div>
+        <button class="btn ghost" onclick="loadAdmin()">↻ Refresh</button>
+      </div>
+      <div id="paymentRequestsTable"></div>
+    </div>
+
+    <div class="card">
+      <div class="top">
         <div><h2 style="margin-bottom:2px">Data Hutang</h2><div class="muted">Filter per bulan, nama, atau status.</div></div>
         <button class="btn ghost" onclick="loadAdmin()">↻ Refresh</button>
       </div>
@@ -138,6 +152,24 @@
         <button class="btn ghost" onclick="clearFilters()">Reset filter</button>
       </div>
       <div id="adminTable"></div>
+    </div>
+  </div>
+</div>
+
+<iframe name="uploadFrame" id="uploadFrame" class="hidden"></iframe>
+<div id="userPaymentModal" class="modal hidden">
+  <div class="modal-box">
+    <h3>📤 Ajukan Pembayaran</h3>
+    <div id="userPaymentInfo" class="muted" style="margin-bottom:14px"></div>
+    <label>Tanggal pembayaran *</label>
+    <input id="userPaymentDate" type="date">
+    <div style="margin-top:12px"><label>Bukti transfer *</label><input id="proofFile" type="file" accept="image/*"></div>
+    <div id="proofPreview" class="muted" style="margin-top:8px"></div>
+    <div class="muted" style="margin-top:8px">Pilih gambar langsung dari galeri HP. Gambar akan disimpan di Google Drive dan catatannya tersimpan di Google Sheet.</div>
+    <div id="userPaymentMsg" style="margin-top:10px"></div>
+    <div class="actions" style="margin-top:14px;justify-content:flex-end">
+      <button class="btn ghost" onclick="closeUserPaymentModal()">Batal</button>
+      <button class="btn primary" onclick="submitUserPaymentRequest()">Kirim untuk Persetujuan</button>
     </div>
   </div>
 </div>
@@ -158,8 +190,9 @@
 
 <script>
   // GANTI URL INI dengan URL Web App Google Apps Script Anda.
-  const API_URL = "https://script.google.com/macros/s/AKfycbzaYjfa3gxQuWhPWLQxZw0JWeAS6F3Wo9FmOcQMW5im3ouZjlOeClJxh6OiBdSE0qhJ/exec";
-  let adminToken = "", adminData = [], adminUsers = [], currentUser = "", userToken = "", paymentDebtId = "";
+  const API_URL = "PASTE_URL_APPS_SCRIPT_DI_SINI";
+  let adminToken = "", adminData = [], adminUsers = [], adminPaymentRequests = [], currentUser = "", userToken = "", paymentDebtId = "", userPaymentDebtId = "";
+  const USER_SESSION_KEY = "catatan_hutang_user_session_v1";
 
   function money(n){return new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(Number(n)||0)}
   function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
@@ -168,7 +201,7 @@
   function hide(id){document.getElementById(id).classList.add("hidden")}
   function backLogin(){hide("adminLoginView");show("loginView")}
   function showAdminLogin(){hide("loginView");show("adminLoginView");document.getElementById("adminPass").focus()}
-  function logout(){adminToken="";adminData=[];adminUsers=[];currentUser="";userToken="";hide("userView");hide("adminView");hide("adminLoginView");show("loginView");document.getElementById("adminPass").value="";document.getElementById("userPin").value=""}
+  function logout(){adminToken="";adminData=[];adminUsers=[];adminPaymentRequests=[];currentUser="";userToken="";userPaymentDebtId="";localStorage.removeItem(USER_SESSION_KEY);hide("userView");hide("adminView");hide("adminLoginView");show("loginView");document.getElementById("adminPass").value="";document.getElementById("userPin").value=""}
 
   async function sha256(text){
     const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(text));
@@ -198,20 +231,66 @@
     try{
       const hash=await sha256(pin);
       const r=await jsonp({action:"userLogin",name,pinHash:hash});
-      userToken=r.token;currentUser=r.name;document.getElementById("userTitle").textContent=currentUser;hide("loginView");show("userView");document.getElementById("userPin").value="";renderUser(r.data||[]);
+      saveUserSession({name:r.name,pinHash:hash,token:r.token});
+      enterUser(r);
     }catch(e){msg("loginMsg",e.message)}
   }
 
+  function saveUserSession(session){
+    try{localStorage.setItem(USER_SESSION_KEY,JSON.stringify({name:session.name,pinHash:session.pinHash,token:session.token}));}catch(e){}
+  }
+
+  function enterUser(r){
+    userToken=r.token;currentUser=r.name;
+    document.getElementById("userTitle").textContent=currentUser;
+    hide("loginView");hide("adminLoginView");show("userView");
+    document.getElementById("userPin").value="";
+    userCurrentDebts=(r.data?.debts||[]);
+    renderUser(r.data||{});
+  }
+
+  async function restoreUserSession(){
+    let saved=null;
+    try{saved=JSON.parse(localStorage.getItem(USER_SESSION_KEY)||"null");}catch(e){saved=null}
+    if(!saved || !saved.name || !saved.pinHash)return;
+    try{
+      // Gunakan token tersimpan terlebih dahulu. Jika token sudah kedaluwarsa, login ulang
+      // otomatis memakai hash PIN yang tersimpan di perangkat (bukan PIN asli).
+      let r;
+      if(saved.token){
+        try{r=await jsonp({action:"userData",token:saved.token});r={ok:true,token:saved.token,name:saved.name,data:r.data};}
+        catch(e){r=await jsonp({action:"userLogin",name:saved.name,pinHash:saved.pinHash});}
+      }else{
+        r=await jsonp({action:"userLogin",name:saved.name,pinHash:saved.pinHash});
+      }
+      saveUserSession({name:r.name||saved.name,pinHash:saved.pinHash,token:r.token||saved.token});
+      enterUser(r);
+    }catch(e){
+      // Kredensial lokal sudah tidak valid (misalnya PIN user di-reset admin).
+      localStorage.removeItem(USER_SESSION_KEY);
+    }
+  }
+
   async function loadUser(){
-    try{const r=await jsonp({action:"userData",token:userToken});renderUser(r.data||[])}catch(e){alert(e.message)}
+    try{const r=await jsonp({action:"userData",token:userToken});renderUser(r.data||{});}catch(e){alert(e.message)}
   }
-  function renderUser(rows){
-    let total=0;
-    rows.forEach(x=>total+=Number(x.sisa)||0);
+  function renderUser(bundle){
+    const rows=Array.isArray(bundle)?bundle:(bundle.debts||[]), requests=bundle.requests||[]; userCurrentDebts=rows;
+    let total=0; rows.forEach(x=>total+=Number(x.sisa)||0);
     document.getElementById("userTotal").textContent=money(total);
+    renderUserRequests(requests);
     if(!rows.length){document.getElementById("userTable").innerHTML='<div class="empty">Belum ada catatan hutang.</div>';return}
-    document.getElementById("userTable").innerHTML=rows.map(x=>renderDebtCard(x,false)).join("");
+    document.getElementById("userTable").innerHTML=rows.map(x=>renderDebtCard(x,false,requests)).join("");
   }
+  function renderUserRequests(requests){
+    const box=document.getElementById("userRequests");
+    if(!requests.length){box.innerHTML='<div class="empty" style="padding:20px">Belum ada permintaan pembayaran.</div>';return}
+    box.innerHTML='<div class="table-wrap"><table style="min-width:720px"><thead><tr><th>Barang</th><th>Angsuran</th><th>Tanggal</th><th>Status</th><th>Bukti</th><th>Catatan Admin</th></tr></thead><tbody>'+requests.map(r=>{
+      const debt=(userCurrentDebts||[]).find(x=>String(x.id)===String(r.hutang_id));
+      return `<tr><td><b>${esc(debt?.barang||"-")}</b></td><td>${r.angsuran_ke}</td><td>${formatDateId(r.tanggal_pembayaran)}</td><td><span class="badge ${r.status==='Disetujui'?'lunas':r.status==='Ditolak'?'terlambat':'berjalan'}">${esc(r.status)}</span></td><td>${r.bukti_url?`<a href="${esc(r.bukti_url)}" target="_blank" rel="noopener">Lihat bukti</a>`:'-'}</td><td>${esc(r.alasan_admin||'-')}</td></tr>`;
+    }).join('')+'</tbody></table></div>';
+  }
+  let userCurrentDebts=[];
 
   async function loginAdmin(){
     const pass=document.getElementById("adminPass").value;
@@ -225,7 +304,7 @@
   }
 
   async function loadAdmin(){
-    try{const r=await jsonp({action:"adminData",token:adminToken});adminData=r.data||[];renderAdmin();loadUsersAdmin()}catch(e){alert(e.message);if(/login|token/i.test(e.message))logout()}
+    try{const r=await jsonp({action:"adminData",token:adminToken});adminData=r.data||[];adminPaymentRequests=r.paymentRequests||[];renderAdmin();renderPaymentRequests();loadUsersAdmin()}catch(e){alert(e.message);if(/login|token/i.test(e.message))logout()}
   }
   async function changeAdminPassword(){
     const pass=document.getElementById("newAdminPass").value;
@@ -241,6 +320,22 @@
       document.getElementById("confirmAdminPass").value="";
     }catch(e){msg("passwordMsg",e.message)}
   }
+  function renderPaymentRequests(){
+    const box=document.getElementById("paymentRequestsTable");
+    const pending=adminPaymentRequests.filter(r=>r.status==='Menunggu Persetujuan');
+    if(!pending.length){box.innerHTML='<div class="empty" style="padding:20px">Tidak ada permintaan pembayaran yang menunggu.</div>';return}
+    box.innerHTML='<div class="table-wrap"><table style="min-width:1000px"><thead><tr><th>Nama</th><th>Barang</th><th>Angsuran</th><th>Nominal</th><th>Tanggal bayar</th><th>Bukti</th><th>Aksi</th></tr></thead><tbody>'+pending.map(r=>{
+      const debt=adminData.find(x=>String(x.id)===String(r.hutang_id));
+      return `<tr><td><b>${esc(r.nama)}</b></td><td>${esc(debt?.barang||'-')}</td><td>${r.angsuran_ke}/${debt?.jumlah_angsuran||'-'}</td><td>${money(r.nominal)}</td><td>${formatDateId(r.tanggal_pembayaran)}</td><td>${r.bukti_url?`<a href="${esc(r.bukti_url)}" target="_blank" rel="noopener">Buka bukti</a>`:'-'}</td><td><div class="actions"><button class="btn primary" onclick='reviewRequest("${esc(r.id)}","Ya")'>Ya, setujui</button><button class="btn danger" onclick='reviewRequest("${esc(r.id)}","Tidak")'>Tidak</button></div></td></tr>`;
+    }).join('')+'</tbody></table></div>';
+  }
+  async function reviewRequest(id,decision){
+    let alasan='';
+    if(decision==='Tidak') alasan=prompt('Alasan penolakan (boleh dikosongkan):')||'';
+    if(!confirm(decision==='Ya'?'Setujui pembayaran ini? Jika Ya, angsuran otomatis masuk.':'Tolak pembayaran ini? Angsuran TIDAK akan masuk.'))return;
+    try{const action=decision==='Ya'?'approvePaymentRequest':'rejectPaymentRequest';await jsonp({action,token:adminToken,id,alasan});msg('adminMsg',decision==='Ya'?'Pembayaran disetujui dan angsuran otomatis masuk.':'Pembayaran ditolak. Angsuran tidak berubah.','success');loadAdmin();}catch(e){msg('adminMsg',e.message)}
+  }
+
   async function loadUsersAdmin(){
     try{const r=await jsonp({action:"users",token:adminToken});adminUsers=r.data||[];renderUsersAdmin()}catch(e){msg("userAdminMsg",e.message)}
   }
@@ -299,9 +394,9 @@
     const rows=schedule.map(r=>`<tr><td>${r.ke}</td><td>${formatDateId(r.due)}</td><td>${money(r.amount)}</td><td><span class="badge ${r.status==="Lunas"?"lunas":r.status==="Berikutnya"?"berjalan":"terlambat"}">${r.status}</span></td></tr>`).join("");
     return `<div class="table-wrap"><table style="min-width:${compact?"520px":"620px"}"><thead><tr><th>Ke-</th><th>Jatuh tempo</th><th>Nominal</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
-  function renderDebtCard(x, admin=false){
+  function renderDebtCard(x, admin=false, userRequests=[]){
     return `<div class="card" style="margin-bottom:12px">
-      <div class="user-head"><div><h3 style="margin-bottom:4px">${esc(x.nama)}</h3><div class="muted">${Number(x.jumlah_angsuran)||0} kali × ${money(x.angsuran_per_bulan)} = <b>${money(x.total_hutang)}</b></div></div>
+      <div class="user-head"><div><h3 style="margin-bottom:4px">${esc(x.nama)}</h3><div><b>Barang: ${esc(x.barang||"-")}</b></div><div class="muted">${Number(x.jumlah_angsuran)||0} kali × ${money(x.angsuran_per_bulan)} = <b>${money(x.total_hutang)}</b></div></div>
       <span class="badge ${String(x.status).toLowerCase()}">${esc(x.status)}</span></div>
       <div class="stats" style="grid-template-columns:repeat(4,1fr);margin:12px 0">
         <div class="stat"><span class="muted">Mulai</span><b style="font-size:15px">${formatDateId(x.tanggal_mulai_angsuran)}</b></div>
@@ -312,8 +407,42 @@
       <div class="muted" style="margin-bottom:8px">Angsuran berikutnya: <b>${x.sisa>0?formatDateId(x.jatuh_tempo_berikutnya):"Lunas"}</b> · Terakhir dibayar: <b>${formatDateId(x.tanggal_angsuran_terakhir)}</b></div>
       ${scheduleHtml(x,!admin)}
       ${x.catatan?`<p class="muted" style="margin:10px 0 0">Catatan: ${esc(x.catatan)}</p>`:""}
-      ${admin?`<div class="actions" style="margin-top:10px">${Number(x.angsuran_dibayar)<Number(x.jumlah_angsuran)?`<button class="btn primary" onclick='openPaymentModalById("${esc(x.id)}")'>💵 Bayar Angsuran</button>`:`<button class="btn ghost" disabled>✓ Semua Lunas</button>`}<button class="btn secondary" onclick='editDebt(${JSON.stringify(x)})'>Edit</button><button class="btn danger" onclick='deleteDebt("${esc(x.id)}")'>Hapus</button></div>`:""}
+      ${admin?`<div class="actions" style="margin-top:10px">${Number(x.angsuran_dibayar)<Number(x.jumlah_angsuran)?`<button class="btn primary" onclick='openPaymentModalById("${esc(x.id)}")'>💵 Bayar Angsuran</button>`:`<button class="btn ghost" disabled>✓ Semua Lunas</button>`}<button class="btn secondary" onclick='editDebt(${JSON.stringify(x)})'>Edit</button><button class="btn danger" onclick='deleteDebt("${esc(x.id)}")'>Hapus</button></div>`:`${Number(x.angsuran_dibayar)>=Number(x.jumlah_angsuran)?`<div class="success" style="margin-top:10px">✓ Semua angsuran sudah lunas.</div>`:((userRequests||[]).some(r=>String(r.hutang_id)===String(x.id)&&r.status==='Menunggu Persetujuan'&&Number(r.angsuran_ke)===Number(x.angsuran_dibayar)+1)?`<div class="muted" style="margin-top:10px">⏳ Pembayaran angsuran berikutnya sedang menunggu persetujuan admin.</div>`:`<div class="actions" style="margin-top:10px"><button class="btn primary" onclick='openUserPaymentModalById("${esc(x.id)}")'>💵 Bayar Angsuran</button></div>`)}`}
     </div>`;
+  }
+
+  function openUserPaymentModalById(id){
+    const x=userCurrentDebts.find(r=>String(r.id)===String(id)); if(!x)return alert('Data hutang tidak ditemukan.');
+    if(Number(x.angsuran_dibayar)>=Number(x.jumlah_angsuran))return alert('Semua angsuran sudah lunas.');
+    userPaymentDebtId=x.id;
+    const next=Number(x.angsuran_dibayar)+1;
+    document.getElementById('userPaymentInfo').innerHTML=`<b>${esc(x.barang||'-')}</b><br>Angsuran ke-${next} dari ${x.jumlah_angsuran} · ${money(x.angsuran_per_bulan)}<br>Jatuh tempo: <b>${formatDateId(x.jatuh_tempo_berikutnya)}</b>`;
+    const d=new Date(); document.getElementById('userPaymentDate').value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    document.getElementById('proofFile').value=''; document.getElementById('proofPreview').textContent=''; msg('userPaymentMsg',''); show('userPaymentModal');
+  }
+  function closeUserPaymentModal(){userPaymentDebtId='';hide('userPaymentModal');msg('userPaymentMsg','');document.getElementById('proofFile').value='';document.getElementById('proofPreview').textContent='';}
+  document.getElementById('proofFile').addEventListener('change',e=>{const f=e.target.files?.[0];document.getElementById('proofPreview').textContent=f?`File dipilih: ${f.name} (${Math.round(f.size/1024)} KB)`:' ';});
+  function compressImage(file){
+    return new Promise((resolve,reject)=>{
+      const reader=new FileReader(); reader.onload=()=>{const img=new Image(); img.onload=()=>{const max=1400; const scale=Math.min(1,max/Math.max(img.width,img.height)); const c=document.createElement('canvas'); c.width=Math.max(1,Math.round(img.width*scale)); c.height=Math.max(1,Math.round(img.height*scale)); const ctx=c.getContext('2d'); ctx.drawImage(img,0,0,c.width,c.height); c.toBlob(blob=>{if(!blob)return reject(new Error('Gagal memproses gambar.')); const r=new FileReader(); r.onload=()=>resolve({data:String(r.result).split(',')[1],mime:'image/jpeg',name:(file.name||'bukti')+'.jpg'}); r.readAsDataURL(blob);},'image/jpeg',0.78);}; img.onerror=()=>reject(new Error('File gambar tidak valid.')); img.src=reader.result;}; reader.onerror=()=>reject(new Error('Gagal membaca file.')); reader.readAsDataURL(file);
+    });
+  }
+  function submitViaHiddenForm(fields){
+    return new Promise((resolve,reject)=>{
+      const form=document.createElement('form'); form.method='POST'; form.action=API_URL; form.target='uploadFrame'; form.style.display='none';
+      Object.entries(fields).forEach(([k,v])=>{const input=document.createElement('input');input.type='hidden';input.name=k;input.value=v??'';form.appendChild(input);});
+      document.body.appendChild(form); form.submit(); setTimeout(()=>{form.remove();resolve();},1200);
+    });
+  }
+  async function submitUserPaymentRequest(){
+    if(!userPaymentDebtId)return; const date=document.getElementById('userPaymentDate').value; const file=document.getElementById('proofFile').files?.[0];
+    if(!date)return msg('userPaymentMsg','Tanggal pembayaran wajib diisi.'); if(!file)return msg('userPaymentMsg','Bukti transfer wajib dipilih.');
+    if(!file.type.startsWith('image/'))return msg('userPaymentMsg','Bukti transfer harus berupa gambar.');
+    try{
+      msg('userPaymentMsg','Memproses gambar dan mengirim...','success'); const compressed=await compressImage(file); const requestId=crypto.randomUUID?crypto.randomUUID():('REQ-'+Date.now()+'-'+Math.random().toString(36).slice(2));
+      await submitViaHiddenForm({action:'submitPaymentRequest',token:userToken,requestId,hutangId:userPaymentDebtId,tanggalPembayaran:date,buktiData:compressed.data,buktiMime:compressed.mime,buktiName:compressed.name});
+      closeUserPaymentModal(); msg('loginMsg',''); alert('Bukti transfer berhasil dikirim. Tunggu persetujuan admin.'); setTimeout(loadUser,1800);
+    }catch(e){msg('userPaymentMsg',e.message||'Gagal mengirim bukti.');}
   }
 
   function openPaymentModalById(id){
@@ -376,6 +505,7 @@
   function editDebt(x){
     document.getElementById("editId").value=x.id||"";
     document.getElementById("fName").value=x.nama||"";
+    document.getElementById("fBarang").value=x.barang||"";
     document.getElementById("fStart").value=x.tanggal_mulai_angsuran||"";
     document.getElementById("fDueDay").value=x.tanggal_jatuh_tempo_day||dayFromDate(x.tanggal_jatuh_tempo_pertama)||5;
     document.getElementById("fInstallments").value=x.jumlah_angsuran||1;
@@ -387,7 +517,7 @@
     show("cancelEdit");window.scrollTo({top:0,behavior:"smooth"});
   }
   function resetForm(){
-    ["editId","fName","fStart","fDueDay","fInstallmentAmount","fNote"].forEach(id=>document.getElementById(id).value="");
+    ["editId","fName","fBarang","fStart","fDueDay","fInstallmentAmount","fNote"].forEach(id=>document.getElementById(id).value="");
     document.getElementById("fInstallments").value=12;
     document.getElementById("fDueDay").value="";
     document.getElementById("fStatus").value="Berjalan";
@@ -400,6 +530,7 @@
     const d={
       id:document.getElementById("editId").value,
       nama:document.getElementById("fName").value.trim(),
+      barang:document.getElementById("fBarang").value.trim(),
       tanggal_mulai_angsuran:document.getElementById("fStart").value,
       tanggal_jatuh_tempo_day:document.getElementById("fDueDay").value,
       jumlah_angsuran:document.getElementById("fInstallments").value,
@@ -407,7 +538,7 @@
       status:document.getElementById("fStatus").value,
       catatan:document.getElementById("fNote").value.trim()
     };
-    if(!d.nama||!d.tanggal_mulai_angsuran||Number(d.tanggal_jatuh_tempo_day)<1||Number(d.tanggal_jatuh_tempo_day)>31||Number(d.jumlah_angsuran)<1||Number(d.angsuran_per_bulan)<=0)return msg("adminMsg","Nama, tanggal mulai, tanggal jatuh tempo tiap bulan, jumlah angsuran, dan angsuran per bulan wajib diisi.");
+    if(!d.nama||!d.barang||!d.tanggal_mulai_angsuran||Number(d.tanggal_jatuh_tempo_day)<1||Number(d.tanggal_jatuh_tempo_day)>31||Number(d.jumlah_angsuran)<1||Number(d.angsuran_per_bulan)<=0)return msg("adminMsg","Nama, nama barang, tanggal mulai, tanggal jatuh tempo tiap bulan, jumlah angsuran, dan angsuran per bulan wajib diisi.");
     if(Number(d.angsuran_dibayar)>Number(d.jumlah_angsuran))return msg("adminMsg","Angsuran dibayar tidak boleh lebih banyak dari jumlah angsuran.");
     try{await jsonp({action:d.id?"update":"create",token:adminToken,data:JSON.stringify(d)});msg("adminMsg","Data berhasil disimpan. Jadwal angsuran dibuat otomatis.","success");resetForm();loadAdmin()}catch(e){msg("adminMsg",e.message)}
   }
@@ -420,6 +551,7 @@
   document.getElementById("userPin").addEventListener("keydown",e=>{if(e.key==="Enter")loginUser()});
   document.getElementById("adminPass").addEventListener("keydown",e=>{if(e.key==="Enter")loginAdmin()});
   ["fInstallments","fInstallmentAmount","fStart","fDueDay"].forEach(id=>document.getElementById(id).addEventListener("input",updateCalculatedTotal));
+  window.addEventListener("load",()=>{restoreUserSession();});
 
 </script>
 </body>
