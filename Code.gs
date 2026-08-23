@@ -4,8 +4,11 @@ const USERS_SHEET_NAME = 'Pengguna';
 const PAYMENTS_SHEET_NAME = 'Pembayaran';
 const USER_HEADERS = ['nama','pin_hash','created_at','updated_at'];
 const PAYMENT_HEADERS = ['id','hutang_id','nama','angsuran_ke','nominal','tanggal_pembayaran','created_at'];
+const REQUESTS_SHEET_NAME = 'Permintaan Pembayaran';
+const REQUEST_HEADERS = ['id','hutang_id','nama','angsuran_ke','nominal','tanggal_pengajuan','tanggal_pembayaran','bukti_file_id','bukti_url','bukti_nama','status','alasan_admin','created_at','updated_at'];
+const DEBT_ITEM_HEADER = 'barang';
 const HEADERS = [
-  'id','nama','tanggal_mulai_angsuran','tanggal_jatuh_tempo_day','tanggal_jatuh_tempo_pertama',
+  'id','nama','barang','tanggal_mulai_angsuran','tanggal_jatuh_tempo_day','tanggal_jatuh_tempo_pertama',
   'jumlah_angsuran','angsuran_per_bulan','angsuran_dibayar',
   'tanggal_angsuran_terakhir','status','catatan','created_at','updated_at'
 ];
@@ -43,6 +46,12 @@ function setup() {
   payments.setFrozenRows(1);
   payments.getRange(1,1,1,PAYMENT_HEADERS.length).setFontWeight('bold');
 
+  let requests = ss.getSheetByName(REQUESTS_SHEET_NAME);
+  if (!requests) requests = ss.insertSheet(REQUESTS_SHEET_NAME);
+  requests.getRange(1,1,1,REQUEST_HEADERS.length).setValues([REQUEST_HEADERS]);
+  requests.setFrozenRows(1);
+  requests.getRange(1,1,1,REQUEST_HEADERS.length).setFontWeight('bold');
+
   let settings = ss.getSheetByName(SETTINGS_SHEET_NAME);
   if (!settings) settings = ss.insertSheet(SETTINGS_SHEET_NAME);
   if (settings.getLastRow() === 0) {
@@ -51,6 +60,10 @@ function setup() {
   } else if (!settings.getRange('A1').getValue()) {
     settings.getRange('A1:B1').setValues([['Kunci','Nilai']]);
     settings.getRange('A2:B2').setValues([['ADMIN_PASSWORD','admin123']]);
+  }
+  if (!settings.getRange('A3').getValue()) {
+    const folder = DriveApp.createFolder('Bukti Transfer Catatan Hutang');
+    settings.getRange('A3:B3').setValues([['BUKTI_FOLDER_ID', folder.getId()]]);
   }
   settings.getRange('A1:B1').setFontWeight('bold');
   settings.setFrozenRows(1);
@@ -62,21 +75,22 @@ function ensureDebtSchema_(sh) {
   const old = lastCol ? sh.getRange(1,1,1,lastCol).getValues()[0].map(String) : [];
   const isNew = HEADERS.every((h,i)=>old[i]===h) && old.length===HEADERS.length;
   if (isNew) return;
-
   const oldData = sh.getLastRow() > 1 ? sh.getRange(2,1,sh.getLastRow()-1,Math.max(lastCol,1)).getValues() : [];
   const oldIndex = {}; old.forEach((h,i)=>oldIndex[h]=i);
+  const getOld = (r,h) => oldIndex[h] === undefined ? '' : r[oldIndex[h]];
   const rows = oldData.filter(r=>r.some(v=>v!=='' && v!==null)).map(r=>{
-    const get = h => oldIndex[h] === undefined ? '' : r[oldIndex[h]];
-    const installments = Number(get('jumlah_angsuran_total')) || 1;
-    const amount = Number(get('nominal_angsuran')) || 0;
-    const due = get('tanggal_jatuh_tempo');
-    const month = get('bulan');
-    const start = month ? month + '-01' : due;
+    const installments = Number(getOld(r,'jumlah_angsuran_total')) || Number(getOld(r,'jumlah_angsuran')) || 1;
+    const amount = Number(getOld(r,'nominal_angsuran')) || Number(getOld(r,'angsuran_per_bulan')) || 0;
+    const due = getOld(r,'tanggal_jatuh_tempo') || getOld(r,'tanggal_jatuh_tempo_pertama');
+    const month = getOld(r,'bulan');
+    const start = getOld(r,'tanggal_mulai_angsuran') || (month ? month + '-01' : due);
+    const dueDay = Number(getOld(r,'tanggal_jatuh_tempo_day')) || dayFromDate_(due) || 1;
+    const firstDue = getOld(r,'tanggal_jatuh_tempo_pertama') || due || firstDueFromStart_(start,dueDay);
     return [
-      get('id') || Utilities.getUuid(), get('nama'), start, dayFromDate_(due) || 1, due,
-      installments, amount, Number(get('jumlah_angsuran_dibayar')) || 0,
-      get('angsuran_terakhir'), get('status') || 'Berjalan', get('catatan'),
-      get('created_at') || new Date(), get('updated_at') || new Date()
+      getOld(r,'id') || Utilities.getUuid(), getOld(r,'nama'), getOld(r,'barang') || getOld(r,'nama_barang') || '', start, dueDay, firstDue,
+      installments, amount, Number(getOld(r,'jumlah_angsuran_dibayar')) || Number(getOld(r,'angsuran_dibayar')) || 0,
+      getOld(r,'angsuran_terakhir') || getOld(r,'tanggal_angsuran_terakhir') || '', getOld(r,'status') || 'Berjalan', getOld(r,'catatan'),
+      getOld(r,'created_at') || new Date(), getOld(r,'updated_at') || new Date()
     ];
   });
   sh.clear();
@@ -97,17 +111,33 @@ function doGet(e) {
       case 'deleteUser': requireToken_(p.token); result = {ok:true, data:deleteUser_(p.name)}; break;
       case 'user': result = {ok:true, data:getUser_(p.name)}; break;
       case 'adminLogin': result = adminLogin_(p.passwordHash); break;
-      case 'adminData': requireToken_(p.token); result = {ok:true, data:getAll_()}; break;
+      case 'adminData': requireToken_(p.token); result = {ok:true, data:getAll_(), paymentRequests:getPaymentRequests_()}; break;
       case 'changePassword': requireToken_(p.token); result = changeAdminPassword_(p.newPassword); break;
       case 'create': requireToken_(p.token); result = {ok:true, data:save_(JSON.parse(p.data), false)}; break;
       case 'update': requireToken_(p.token); result = {ok:true, data:save_(JSON.parse(p.data), true)}; break;
       case 'payInstallment': requireToken_(p.token); result = {ok:true, data:payInstallment_(p.id,p.tanggalPembayaran)}; break;
+      case 'approvePaymentRequest': requireToken_(p.token); result = {ok:true, data:reviewPaymentRequest_(p.id,'Ya',p.alasan||'')}; break;
+      case 'rejectPaymentRequest': requireToken_(p.token); result = {ok:true, data:reviewPaymentRequest_(p.id,'Tidak',p.alasan||'')}; break;
+      case 'requestStatus': result = {ok:true, data:getRequestByIdForUser_(p.token,p.id)}; break;
       case 'delete': requireToken_(p.token); result = {ok:true, data:delete_(p.id)}; break;
       default: result = {ok:false,error:'Action tidak dikenal.'};
     }
     return jsonp_(e, result);
   } catch (err) {
     return jsonp_(e, {ok:false,error:String(err.message || err)});
+  }
+}
+
+function doPost(e) {
+  try {
+    const p = e.parameter || {};
+    if (p.action === 'submitPaymentRequest') {
+      const result = submitPaymentRequest_(p);
+      return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ok:false,error:'Action tidak dikenal.'})).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ok:false,error:String(err.message || err)})).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
@@ -161,7 +191,7 @@ function userLogin_(name,pinHash) {
 function getUserByToken_(token) {
   const name = token ? CacheService.getScriptCache().get('USER_'+token) : '';
   if (!name) throw new Error('Sesi pengguna sudah berakhir. Silakan login lagi.');
-  return getUser_(name);
+  return {debts:getUser_(name),requests:getPaymentRequestsForUser_(name)};
 }
 function getUser_(name) { const wanted=normalize_(name); return wanted?getAll_().filter(x=>normalize_(x.nama)===wanted):[]; }
 
@@ -212,12 +242,13 @@ function rowToObject_(r) {
 function save_(d,isUpdate) {
   const sh=getSheet_(),now=new Date();
   const nama=String(d.nama||'').trim();
+  const barang=String(d.barang||'').trim();
   const start=String(d.tanggal_mulai_angsuran||'').trim();
   const dueDay=Math.floor(Number(d.tanggal_jatuh_tempo_day)||0);
   const firstDue=firstDueFromStart_(start,dueDay);
   const jumlah=Math.floor(Number(d.jumlah_angsuran)||0);
   const amount=Number(d.angsuran_per_bulan)||0;
-  if(!nama||!start||dueDay<1||dueDay>31||!firstDue||jumlah<1||amount<=0) throw new Error('Nama, tanggal mulai, tanggal jatuh tempo tiap bulan, jumlah angsuran, dan angsuran per bulan wajib diisi.');
+  if(!nama||!barang||!start||dueDay<1||dueDay>31||!firstDue||jumlah<1||amount<=0) throw new Error('Nama, nama barang, tanggal mulai, tanggal jatuh tempo tiap bulan, jumlah angsuran, dan angsuran per bulan wajib diisi.');
 
   let existing=null;
   if(isUpdate){
@@ -231,7 +262,7 @@ function save_(d,isUpdate) {
   const paid=Math.max(0,Math.min(jumlah, existing ? Number(existing.angsuran_dibayar)||0 : 0));
   const lastPaid=existing ? String(existing.tanggal_angsuran_terakhir||'') : '';
   const obj={
-    id:d.id||Utilities.getUuid(),nama,tanggal_mulai_angsuran:start,tanggal_jatuh_tempo_day:dueDay,tanggal_jatuh_tempo_pertama:firstDue,
+    id:d.id||Utilities.getUuid(),nama,barang,tanggal_mulai_angsuran:start,tanggal_jatuh_tempo_day:dueDay,tanggal_jatuh_tempo_pertama:firstDue,
     jumlah_angsuran:jumlah,angsuran_per_bulan:amount,angsuran_dibayar:paid,
     tanggal_angsuran_terakhir:lastPaid,
     status:paid>=jumlah?'Lunas':String(d.status||'Berjalan'),catatan:String(d.catatan||''),
@@ -246,36 +277,87 @@ function save_(d,isUpdate) {
   return rowToObject_(objectToRow_(obj));
 }
 function payInstallment_(id,paymentDate){
-  const lock=LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    const row=findRowById_(id);
-    if(!row) throw new Error('Data hutang tidak ditemukan.');
-    const sh=getSheet_();
-    const obj=rowToObject_(sh.getRange(row,1,1,HEADERS.length).getValues()[0]);
-    const paid=Number(obj.angsuran_dibayar)||0;
-    const total=Number(obj.jumlah_angsuran)||0;
-    if(paid>=total) throw new Error('Semua angsuran sudah lunas.');
-    const date=String(paymentDate||'').trim();
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Tanggal pembayaran tidak valid.');
-    const parts=date.split('-').map(Number);
-    const dt=new Date(parts[0],parts[1]-1,parts[2]);
-    if(dt.getFullYear()!==parts[0]||dt.getMonth()!==parts[1]-1||dt.getDate()!==parts[2]) throw new Error('Tanggal pembayaran tidak valid.');
+  const lock=LockService.getScriptLock(); lock.waitLock(10000);
+  try { return applyPayment_(id,paymentDate); } finally { lock.releaseLock(); }
+}
+function applyPayment_(id,paymentDate){
+  const row=findRowById_(id); if(!row) throw new Error('Data hutang tidak ditemukan.');
+  const sh=getSheet_(); const obj=rowToObject_(sh.getRange(row,1,1,HEADERS.length).getValues()[0]);
+  const paid=Number(obj.angsuran_dibayar)||0, total=Number(obj.jumlah_angsuran)||0;
+  if(paid>=total) throw new Error('Semua angsuran sudah lunas.');
+  const date=String(paymentDate||'').trim();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Tanggal pembayaran tidak valid.');
+  const parts=date.split('-').map(Number), dt=new Date(parts[0],parts[1]-1,parts[2]);
+  if(dt.getFullYear()!==parts[0]||dt.getMonth()!==parts[1]-1||dt.getDate()!==parts[2]) throw new Error('Tanggal pembayaran tidak valid.');
+  const next=paid+1, paymentSh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(PAYMENTS_SHEET_NAME);
+  if(!paymentSh) throw new Error('Sheet Pembayaran belum ada. Jalankan setup().');
+  paymentSh.appendRow([Utilities.getUuid(),obj.id,obj.nama,next,Number(obj.angsuran_per_bulan)||0,date,new Date()]);
+  obj.angsuran_dibayar=next; obj.tanggal_angsuran_terakhir=date; obj.status=next>=total?'Lunas':'Berjalan'; obj.updated_at=new Date().toISOString();
+  sh.getRange(row,1,1,HEADERS.length).setValues([objectToRow_(obj)]); return rowToObject_(objectToRow_(obj));
+}
 
-    const next=paid+1;
-    const paymentSh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(PAYMENTS_SHEET_NAME);
-    if(!paymentSh) throw new Error('Sheet Pembayaran belum ada. Jalankan setup().');
-    paymentSh.appendRow([Utilities.getUuid(),obj.id,obj.nama,next,Number(obj.angsuran_per_bulan)||0,date,new Date()]);
-
-    obj.angsuran_dibayar=next;
-    obj.tanggal_angsuran_terakhir=date;
-    obj.status=next>=total?'Lunas':'Berjalan';
-    obj.updated_at=new Date().toISOString();
-    sh.getRange(row,1,1,HEADERS.length).setValues([objectToRow_(obj)]);
-    return rowToObject_(objectToRow_(obj));
-  } finally {
-    lock.releaseLock();
-  }
+function getRequestsSheet_() {
+  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(REQUESTS_SHEET_NAME);
+  if(!sh) throw new Error('Sheet Permintaan Pembayaran belum ada. Jalankan setup().');
+  return sh;
+}
+function requestRowToObject_(r){
+  const x={}; REQUEST_HEADERS.forEach((h,i)=>x[h]=formatValue_(r[i],h));
+  x.nominal=Number(x.nominal)||0; x.angsuran_ke=Number(x.angsuran_ke)||0;
+  return x;
+}
+function getPaymentRequests_(){
+  const sh=getRequestsSheet_(), last=sh.getLastRow(); if(last<2)return [];
+  return sh.getRange(2,1,last-1,REQUEST_HEADERS.length).getValues().filter(r=>r[0]).map(requestRowToObject_).reverse();
+}
+function getPaymentRequestsForUser_(name){
+  const wanted=normalize_(name); return getPaymentRequests_().filter(x=>normalize_(x.nama)===wanted);
+}
+function getRequestByIdForUser_(token,id){
+  const name=token ? CacheService.getScriptCache().get('USER_'+token) : ''; if(!name)throw new Error('Sesi pengguna sudah berakhir.');
+  const x=getPaymentRequestsForUser_(name).find(r=>String(r.id)===String(id)); if(!x)throw new Error('Permintaan tidak ditemukan.'); return x;
+}
+function getDriveFolder_(){
+  const settings=getSettingsSheet_(); let id=String(settings.getRange('B3').getDisplayValue()||'').trim();
+  if(!id){const folder=DriveApp.createFolder('Bukti Transfer Catatan Hutang');id=folder.getId();settings.getRange('A3:B3').setValues([['BUKTI_FOLDER_ID',id]]);}
+  return DriveApp.getFolderById(id);
+}
+function submitPaymentRequest_(p){
+  const token=String(p.token||'').trim(); const name=token?CacheService.getScriptCache().get('USER_'+token):'';
+  if(!name)throw new Error('Sesi pengguna tidak valid atau sudah berakhir.');
+  const id=String(p.requestId||'').trim()||Utilities.getUuid(); const debtId=String(p.hutangId||'').trim();
+  const row=findRowById_(debtId); if(!row)throw new Error('Data hutang tidak ditemukan.');
+  const sh=getSheet_(); const obj=rowToObject_(sh.getRange(row,1,1,HEADERS.length).getValues()[0]);
+  if(normalize_(obj.nama)!==normalize_(name))throw new Error('Data hutang bukan milik pengguna ini.');
+  const paid=Number(obj.angsuran_dibayar)||0,total=Number(obj.jumlah_angsuran)||0; if(paid>=total)throw new Error('Semua angsuran sudah lunas.');
+  const existing=getPaymentRequests_().find(r=>String(r.id)===id); if(existing) return {ok:true,id:id,status:existing.status};
+  const pending=getPaymentRequestsForUser_(name).find(r=>String(r.hutang_id)===debtId && r.status==='Menunggu Persetujuan' && Number(r.angsuran_ke)===paid+1);
+  if(pending)throw new Error('Permintaan pembayaran untuk angsuran ini sudah menunggu persetujuan admin.');
+  const date=String(p.tanggalPembayaran||'').trim(); if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw new Error('Tanggal pembayaran tidak valid.');
+  const mime=String(p.buktiMime||''); const data=String(p.buktiData||''); const fileName=String(p.buktiName||'bukti-transfer.jpg');
+  if(!/^image\/(jpeg|jpg|png|webp|heic|heif)$/i.test(mime))throw new Error('Bukti transfer harus berupa gambar.');
+  if(!data)throw new Error('Bukti transfer wajib diupload.');
+  if(data.length>2600000)throw new Error('Ukuran bukti terlalu besar. Gunakan gambar yang lebih kecil.');
+  const bytes=Utilities.base64Decode(data); if(bytes.length>1900000)throw new Error('Ukuran gambar maksimal sekitar 1,9 MB.');
+  const blob=Utilities.newBlob(bytes,mime,fileName); const file=getDriveFolder_().createFile(blob); file.setName('Bukti - '+obj.nama+' - Angsuran '+(paid+1));
+  const now=new Date(); const req={id, hutang_id:obj.id,nama:obj.nama,angsuran_ke:paid+1,nominal:Number(obj.angsuran_per_bulan)||0,tanggal_pengajuan:now,tanggal_pembayaran:date,bukti_file_id:file.getId(),bukti_url:file.getUrl(),bukti_nama:file.getName(),status:'Menunggu Persetujuan',alasan_admin:'',created_at:now,updated_at:now};
+  getRequestsSheet_().appendRow(REQUEST_HEADERS.map(h=>req[h]??''));
+  return {ok:true,id,status:req.status};
+}
+function reviewPaymentRequest_(id,decision,reason){
+  const lock=LockService.getScriptLock();lock.waitLock(10000);
+  try{
+    const sh=getRequestsSheet_(),last=sh.getLastRow();if(last<2)throw new Error('Permintaan tidak ditemukan.');
+    const rows=sh.getRange(2,1,last-1,REQUEST_HEADERS.length).getValues();const i=rows.findIndex(r=>String(r[0])===String(id));if(i<0)throw new Error('Permintaan tidak ditemukan.');
+    const req=requestRowToObject_(rows[i]); if(req.status!=='Menunggu Persetujuan')throw new Error('Permintaan ini sudah diproses.');
+    if(decision==='Ya'){
+      const paidResult=applyPayment_(req.hutang_id,req.tanggal_pembayaran);
+      rows[i][REQUEST_HEADERS.indexOf('status')]='Disetujui'; rows[i][REQUEST_HEADERS.indexOf('alasan_admin')]=String(reason||''); rows[i][REQUEST_HEADERS.indexOf('updated_at')]=new Date();
+      sh.getRange(i+2,1,1,REQUEST_HEADERS.length).setValues([rows[i]]); return {request:req,debt:paidResult};
+    }
+    rows[i][REQUEST_HEADERS.indexOf('status')]='Ditolak'; rows[i][REQUEST_HEADERS.indexOf('alasan_admin')]=String(reason||''); rows[i][REQUEST_HEADERS.indexOf('updated_at')]=new Date();
+    sh.getRange(i+2,1,1,REQUEST_HEADERS.length).setValues([rows[i]]); return {request:requestRowToObject_(rows[i])};
+  } finally {lock.releaseLock();}
 }
 
 function delete_(id){const row=findRowById_(id);if(!row)throw new Error('Data tidak ditemukan.');getSheet_().deleteRow(row);return {id:id};}
