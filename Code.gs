@@ -6,6 +6,8 @@ const USER_HEADERS = ['nama','pin_hash','created_at','updated_at'];
 const PAYMENT_HEADERS = ['id','hutang_id','nama','angsuran_ke','nominal','tanggal_pembayaran','created_at'];
 const REQUESTS_SHEET_NAME = 'Permintaan Pembayaran';
 const REQUEST_HEADERS = ['id','hutang_id','nama','angsuran_ke','nominal','tanggal_pengajuan','tanggal_pembayaran','bukti_file_id','bukti_url','bukti_nama','status','alasan_admin','created_at','updated_at'];
+const MESSAGES_SHEET_NAME = 'Pesan';
+const MESSAGE_HEADERS = ['id','nama','pengirim','isi','waktu','dibaca','created_at'];
 const DEBT_ITEM_HEADER = 'barang';
 const HEADERS = [
   'id','nama','barang','tanggal_mulai_angsuran','tanggal_jatuh_tempo_day','tanggal_jatuh_tempo_pertama',
@@ -51,6 +53,12 @@ function setup() {
   requests.getRange(1,1,1,REQUEST_HEADERS.length).setValues([REQUEST_HEADERS]);
   requests.setFrozenRows(1);
   requests.getRange(1,1,1,REQUEST_HEADERS.length).setFontWeight('bold');
+
+  let messages = ss.getSheetByName(MESSAGES_SHEET_NAME);
+  if (!messages) messages = ss.insertSheet(MESSAGES_SHEET_NAME);
+  messages.getRange(1,1,1,MESSAGE_HEADERS.length).setValues([MESSAGE_HEADERS]);
+  messages.setFrozenRows(1);
+  messages.getRange(1,1,1,MESSAGE_HEADERS.length).setFontWeight('bold');
 
   let settings = ss.getSheetByName(SETTINGS_SHEET_NAME);
   if (!settings) settings = ss.insertSheet(SETTINGS_SHEET_NAME);
@@ -117,8 +125,15 @@ function doGet(e) {
       case 'update': requireToken_(p.token); result = {ok:true, data:save_(JSON.parse(p.data), true)}; break;
       case 'payInstallment': requireToken_(p.token); result = {ok:true, data:payInstallment_(p.id,p.tanggalPembayaran)}; break;
       case 'approvePaymentRequest': requireToken_(p.token); result = {ok:true, data:approvePaymentRequest_(p.id)}; break;
-      case 'rejectPaymentRequest': requireToken_(p.token); result = {ok:true, data:reviewPaymentRequest_(p.id,'Tidak',p.alasan||'')}; break;
+      case 'rejectPaymentRequest': requireToken_(p.token); result = {ok:true, data:rejectPaymentRequest_(p.id,p.alasan||'')}; break;
       case 'requestStatus': result = {ok:true, data:getRequestByIdForUser_(p.token,p.id)}; break;
+      case 'userMessages': result = {ok:true, data:getMessagesForUserToken_(p.token)}; break;
+      case 'sendUserMessage': result = {ok:true, data:sendUserMessage_(p.token,p.isi)}; break;
+      case 'markUserMessagesRead': result = {ok:true, data:markUserMessagesReadForUser_(p.token)}; break;
+      case 'adminMessages': requireToken_(p.token); result = {ok:true, data:getAdminMessageThreads_()}; break;
+      case 'adminThread': requireToken_(p.token); result = {ok:true, data:getAdminThread_(p.name)}; break;
+      case 'sendAdminMessage': requireToken_(p.token); result = {ok:true, data:sendAdminMessage_(p.name,p.isi)}; break;
+      case 'markAdminMessagesRead': requireToken_(p.token); result = {ok:true, data:markAdminMessagesRead_(p.name)}; break;
       case 'delete': requireToken_(p.token); result = {ok:true, data:delete_(p.id)}; break;
       default: result = {ok:false,error:'Action tidak dikenal.'};
     }
@@ -407,6 +422,69 @@ function rejectPaymentRequest_(id,reason){
   }finally{
     lock.releaseLock();
   }
+}
+
+function getMessagesSheet_(){
+  const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(MESSAGES_SHEET_NAME);
+  if(!sh) throw new Error('Sheet Pesan belum ada. Jalankan setup().');
+  return sh;
+}
+function messageRowToObject_(r){
+  const x={}; MESSAGE_HEADERS.forEach((h,i)=>x[h]=r[i]);
+  if(x.waktu instanceof Date) x.waktu=Utilities.formatDate(x.waktu,Session.getScriptTimeZone(),"yyyy-MM-dd'T'HH:mm:ss");
+  if(x.created_at instanceof Date) x.created_at=x.created_at.toISOString();
+  return x;
+}
+function getAllMessages_(){
+  const sh=getMessagesSheet_(), last=sh.getLastRow(); if(last<2)return [];
+  return sh.getRange(2,1,last-1,MESSAGE_HEADERS.length).getValues().filter(r=>r[0]).map(messageRowToObject_);
+}
+function getMessagesForName_(name){
+  const wanted=normalize_(name);
+  return getAllMessages_().filter(x=>normalize_(x.nama)===wanted).sort((a,b)=>new Date(a.waktu)-new Date(b.waktu));
+}
+function getMessagesForUserToken_(token){
+  const name=token?CacheService.getScriptCache().get('USER_'+token):''; if(!name)throw new Error('Sesi pengguna sudah berakhir.');
+  return {name, messages:getMessagesForName_(name)};
+}
+function sendUserMessage_(token,isi){
+  const name=token?CacheService.getScriptCache().get('USER_'+token):''; if(!name)throw new Error('Sesi pengguna sudah berakhir.');
+  const text=String(isi||'').trim(); if(!text)throw new Error('Pesan tidak boleh kosong.'); if(text.length>2000)throw new Error('Pesan maksimal 2000 karakter.');
+  const now=new Date(), id=Utilities.getUuid();
+  getMessagesSheet_().appendRow([id,name,'user',text,now,'BELUM',now]);
+  return {id,nama:name,pengirim:'user',isi:text,waktu:Utilities.formatDate(now,Session.getScriptTimeZone(),"yyyy-MM-dd'T'HH:mm:ss"),dibaca:'BELUM'};
+}
+function markUserMessagesReadForUser_(token){
+  const name=token?CacheService.getScriptCache().get('USER_'+token):''; if(!name)throw new Error('Sesi pengguna sudah berakhir.');
+  const sh=getMessagesSheet_(), last=sh.getLastRow(); if(last<2)return {updated:0};
+  const rows=sh.getRange(2,1,last-1,MESSAGE_HEADERS.length).getValues(); let n=0;
+  rows.forEach(r=>{if(normalize_(r[1])===normalize_(name)&&String(r[2])==='admin'&&String(r[5])!=='YA'){r[5]='YA';n++;}});
+  if(n)sh.getRange(2,1,rows.length,MESSAGE_HEADERS.length).setValues(rows);
+  return {updated:n};
+}
+function getAdminMessageThreads_(){
+  const messages=getAllMessages_(), map={};
+  messages.forEach(m=>{const k=normalize_(m.nama); if(!k)return; if(!map[k])map[k]={nama:m.nama,messages:[],unread:0,last:null}; map[k].messages.push(m); if(m.pengirim==='user'&&m.dibaca!=='YA')map[k].unread++; if(!map[k].last||new Date(m.waktu)>new Date(map[k].last.waktu))map[k].last=m;});
+  return Object.values(map).sort((a,b)=>(b.unread-a.unread)||((b.last?.waktu||'').localeCompare(a.last?.waktu||'')));
+}
+function getAdminThread_(name){
+  const wanted=normalize_(name); if(!wanted)throw new Error('Nama pelanggan wajib diisi.');
+  return {name:name,messages:getMessagesForName_(name)};
+}
+function sendAdminMessage_(name,isi){
+  const wanted=normalize_(name); if(!wanted)throw new Error('Nama pelanggan wajib diisi.');
+  const exists=getUsers_().some(u=>normalize_(u.nama)===wanted) || getAll_().some(x=>normalize_(x.nama)===wanted); if(!exists)throw new Error('Pelanggan tidak ditemukan.');
+  const text=String(isi||'').trim(); if(!text)throw new Error('Pesan tidak boleh kosong.'); if(text.length>2000)throw new Error('Pesan maksimal 2000 karakter.');
+  const now=new Date(), id=Utilities.getUuid(); getMessagesSheet_().appendRow([id,name,'admin',text,now,'BELUM',now]);
+  return {id,nama:name,pengirim:'admin',isi:text,waktu:Utilities.formatDate(now,Session.getScriptTimeZone(),"yyyy-MM-dd'T'HH:mm:ss"),dibaca:'BELUM'};
+}
+function markAdminMessagesRead_(name){
+  const wanted=normalize_(name); if(!wanted)throw new Error('Nama pelanggan wajib diisi.');
+  const sh=getMessagesSheet_(), last=sh.getLastRow(); if(last<2)return {updated:0};
+  const rows=sh.getRange(2,1,last-1,MESSAGE_HEADERS.length).getValues(); let n=0;
+  rows.forEach(r=>{if(normalize_(r[1])===wanted&&String(r[2])==='user'&&String(r[5])!=='YA'){r[5]='YA';n++;}});
+  if(n)sh.getRange(2,1,rows.length,MESSAGE_HEADERS.length).setValues(rows);
+  return {updated:n};
 }
 
 function delete_(id){const row=findRowById_(id);if(!row)throw new Error('Data tidak ditemukan.');getSheet_().deleteRow(row);return {id:id};}
