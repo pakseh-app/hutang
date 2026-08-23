@@ -10,7 +10,7 @@
     *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
     .wrap{max-width:1180px;margin:auto;padding:18px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
     h1,h2,h3,p{margin-top:0}.brand{font-weight:800;font-size:22px}.muted{color:var(--muted);font-size:13px}
-    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 5px 20px #00000008;margin-bottom:16px}
+    .notice{background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:12px;font-size:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 5px 20px #00000008;margin-bottom:16px}
     .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
     label{display:block;font-size:13px;font-weight:700;margin-bottom:6px}input,select,textarea{width:100%;padding:11px 12px;border:1px solid #d1d5db;border-radius:10px;background:#fff;font:inherit}
     textarea{min-height:80px;resize:vertical}.btn{border:0;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer}.btn.primary{background:var(--primary);color:#fff}.btn.secondary{background:#eef2ff;color:#3730a3}.btn.danger{background:#fee2e2;color:#991b1b}.btn.ghost{background:#f3f4f6;color:#374151}.btn:disabled{opacity:.5;cursor:not-allowed}
@@ -19,7 +19,7 @@
     .table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;min-width:930px}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;font-size:13px;vertical-align:top}th{background:#f9fafb;font-size:12px}
     .badge{display:inline-block;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:800}.lunas{background:#dcfce7;color:#166534}.berjalan{background:#dbeafe;color:#1d4ed8}.terlambat{background:#fee2e2;color:#991b1b}
     .user-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.amount{font-size:28px;font-weight:800}.empty{text-align:center;padding:35px;color:var(--muted)}
-    .modal{position:fixed;inset:0;background:#00000055;display:flex;align-items:center;justify-content:center;padding:16px;z-index:1000}.modal-box{background:#fff;border-radius:16px;padding:20px;width:min(430px,100%);box-shadow:0 20px 60px #00000030}.modal-box h3{margin-bottom:8px}
+    .customer-group > summary::-webkit-details-marker{display:none}.customer-group > summary:after{content:"▾";float:right;color:var(--muted);font-weight:800}.customer-group:not([open]) > summary:after{content:"▸"}.customer-group .card{box-shadow:none}.modal{position:fixed;inset:0;background:#00000055;display:flex;align-items:center;justify-content:center;padding:16px;z-index:1000}.modal-box{background:#fff;border-radius:16px;padding:20px;width:min(430px,100%);box-shadow:0 20px 60px #00000030}.modal-box h3{margin-bottom:8px}
     @media(max-width:800px){.grid,.grid-4,.stats{grid-template-columns:1fr 1fr}.top{align-items:flex-start;flex-direction:column}}
     @media(max-width:520px){.grid,.grid-4,.stats{grid-template-columns:1fr}.wrap{padding:12px}.card{padding:14px}}
   </style>
@@ -80,18 +80,18 @@
       <button class="btn ghost" onclick="logout()">Keluar</button>
     </div>
     <div class="stats">
-      <div class="stat"><span class="muted">Total data</span><b id="sCount">0</b></div>
+      <div class="stat"><span class="muted">Jumlah pelanggan</span><b id="sCount">0</b></div>
       <div class="stat"><span class="muted">Total hutang</span><b id="sTotal">Rp 0</b></div>
       <div class="stat"><span class="muted">Sudah dibayar</span><b id="sPaid">Rp 0</b></div>
       <div class="stat"><span class="muted">Sisa</span><b id="sRemain">Rp 0</b></div>
     </div>
 
     <div class="card">
-      <h2 id="formTitle">Tambah Hutang</h2>
+      <h2 id="formTitle">Tambah Hutang / Kredit</h2><div class="notice" style="margin-bottom:12px">💡 <b>Satu pelanggan bisa memiliki beberapa kredit.</b> Setiap barang dibuat sebagai data angsuran terpisah, sehingga nominal, jumlah angsuran, dan jatuh tempo masing-masing bisa berbeda.</div>
       <div id="adminMsg"></div>
       <input id="editId" type="hidden">
       <div class="grid">
-        <div><label>Nama *</label><input id="fName" placeholder="Nama pelanggan"></div>
+        <div><label>Nama *</label><input id="fName" list="customerNames" placeholder="Nama pelanggan"><datalist id="customerNames"></datalist><div class="muted">Nama yang sama boleh memiliki beberapa kredit/barang.</div></div>
         <div><label>Nama barang *</label><input id="fBarang" placeholder="Contoh: Mesin Cuci, HP, TV"></div>
         <div><label>Tanggal mulai angsuran *</label><input id="fStart" type="date"></div>
         <div><label>Tanggal jatuh tempo tiap bulan *</label><input id="fDueDay" type="number" min="1" max="31" step="1" placeholder="5" oninput="updateCalculatedTotal()"></div>
@@ -190,7 +190,7 @@
 
 <script>
   // GANTI URL INI dengan URL Web App Google Apps Script Anda.
-  const API_URL = "https://script.google.com/macros/s/AKfycbxUXAnx3oUJQmqXAVrHupDoVvxXcXYUQgG-9OSnXmt-90W86pMINg1MUKpYHFnBi18-/exec";
+  const API_URL = "PASTE_URL_APPS_SCRIPT_DI_SINI";
   let adminToken = "", adminData = [], adminUsers = [], adminPaymentRequests = [], currentUser = "", userToken = "", paymentDebtId = "", userPaymentDebtId = "";
   const USER_SESSION_KEY = "catatan_hutang_user_session_v1";
 
@@ -276,11 +276,12 @@
   }
   function renderUser(bundle){
     const rows=Array.isArray(bundle)?bundle:(bundle.debts||[]), requests=bundle.requests||[]; userCurrentDebts=rows;
-    let total=0; rows.forEach(x=>total+=Number(x.sisa)||0);
+    let total=0, monthly=0, active=0; rows.forEach(x=>{total+=Number(x.sisa)||0; if(Number(x.sisa)>0){active++; monthly+=Number(x.angsuran_per_bulan)||0;}});
     document.getElementById("userTotal").textContent=money(total);
     renderUserRequests(requests);
     if(!rows.length){document.getElementById("userTable").innerHTML='<div class="empty">Belum ada catatan hutang.</div>';return}
-    document.getElementById("userTable").innerHTML=rows.map(x=>renderDebtCard(x,false,requests)).join("");
+    const summary=`<div class="card" style="margin-bottom:12px"><div class="user-head"><div><h2 style="margin-bottom:4px">📋 Semua Kredit Anda</h2><div class="muted">${rows.length} kredit/barang terdaftar · ${active} masih berjalan</div></div></div><div class="stats" style="grid-template-columns:repeat(3,1fr);margin-top:12px"><div class="stat"><span class="muted">Total sisa semua kredit</span><b>${money(total)}</b></div><div class="stat"><span class="muted">Angsuran aktif per bulan</span><b>${money(monthly)}</b></div><div class="stat"><span class="muted">Jumlah kredit</span><b>${rows.length}</b></div></div></div>`;
+    document.getElementById("userTable").innerHTML=summary+rows.map((x,i)=>renderDebtCard(x,false,requests,i)).join("");
   }
   function renderUserRequests(requests){
     const box=document.getElementById("userRequests");
@@ -340,6 +341,7 @@
     try{const r=await jsonp({action:"users",token:adminToken});adminUsers=r.data||[];renderUsersAdmin()}catch(e){msg("userAdminMsg",e.message)}
   }
   function renderUsersAdmin(){
+    const dl=document.getElementById("customerNames"); if(dl) dl.innerHTML=adminUsers.map(u=>`<option value="${esc(u.nama)}"></option>`).join("");
     if(!adminUsers.length){document.getElementById("usersTable").innerHTML='<div class="empty">Belum ada pelanggan. Tambahkan nama dan PIN di atas.</div>';return}
     document.getElementById("usersTable").innerHTML=`<div class="table-wrap"><table><thead><tr><th>Nama</th><th>Aksi</th></tr></thead><tbody>${adminUsers.map(u=>`<tr><td><b>${esc(u.nama)}</b></td><td><div class="actions"><button class="btn secondary" onclick='prepareUserEdit(${JSON.stringify(u)})'>Reset PIN</button><button class="btn danger" onclick='deleteUserAdmin("${esc(u.nama)}")'>Hapus</button></div></td></tr>`).join("")}</tbody></table></div>`;
   }
@@ -394,9 +396,9 @@
     const rows=schedule.map(r=>`<tr><td>${r.ke}</td><td>${formatDateId(r.due)}</td><td>${money(r.amount)}</td><td><span class="badge ${r.status==="Lunas"?"lunas":r.status==="Berikutnya"?"berjalan":"terlambat"}">${r.status}</span></td></tr>`).join("");
     return `<div class="table-wrap"><table style="min-width:${compact?"520px":"620px"}"><thead><tr><th>Ke-</th><th>Jatuh tempo</th><th>Nominal</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
-  function renderDebtCard(x, admin=false, userRequests=[]){
+  function renderDebtCard(x, admin=false, userRequests=[], index=0){
     return `<div class="card" style="margin-bottom:12px">
-      <div class="user-head"><div><h3 style="margin-bottom:4px">${esc(x.nama)}</h3><div><b>Barang: ${esc(x.barang||"-")}</b></div><div class="muted">${Number(x.jumlah_angsuran)||0} kali × ${money(x.angsuran_per_bulan)} = <b>${money(x.total_hutang)}</b></div></div>
+      <div class="user-head"><div><h3 style="margin-bottom:4px">Kredit #${index+1}</h3><div class="muted" style="margin-bottom:4px">Pelanggan: <b>${esc(x.nama)}</b></div><div><b>Barang: ${esc(x.barang||"-")}</b></div><div class="muted">${Number(x.jumlah_angsuran)||0} kali × ${money(x.angsuran_per_bulan)} = <b>${money(x.total_hutang)}</b></div></div>
       <span class="badge ${String(x.status).toLowerCase()}">${esc(x.status)}</span></div>
       <div class="stats" style="grid-template-columns:repeat(4,1fr);margin:12px 0">
         <div class="stat"><span class="muted">Mulai</span><b style="font-size:15px">${formatDateId(x.tanggal_mulai_angsuran)}</b></div>
@@ -480,11 +482,43 @@
     });
     let total=0,paid=0;
     adminData.forEach(x=>{total+=Number(x.total_hutang)||0;paid+=Number(x.terbayar)||0});
-    document.getElementById("sCount").textContent=adminData.length;
+
+    const groups={};
+    rows.forEach(x=>{
+      const key=String(x.nama||"Tanpa Nama").trim().toLowerCase();
+      if(!groups[key]) groups[key]={nama:x.nama||"Tanpa Nama",items:[]};
+      groups[key].items.push(x);
+    });
+    const customers=Object.values(groups).sort((a,b)=>a.nama.localeCompare(b.nama,'id'));
+
+    document.getElementById("sCount").textContent=Object.keys(adminData.reduce((m,x)=>{const k=String(x.nama||'').trim().toLowerCase();if(k)m[k]=1;return m},{})).length;
     document.getElementById("sTotal").textContent=money(total);
     document.getElementById("sPaid").textContent=money(paid);
     document.getElementById("sRemain").textContent=money(total-paid);
-    document.getElementById("adminTable").innerHTML=rows.length?rows.map(x=>renderDebtCard(x,true)).join(""):'<div class="empty">Tidak ada data.</div>';
+
+    if(!customers.length){document.getElementById("adminTable").innerHTML='<div class="empty">Tidak ada data.</div>';return}
+
+    document.getElementById("adminTable").innerHTML=customers.map((g,gi)=>{
+      const customerTotal=g.items.reduce((n,x)=>n+(Number(x.total_hutang)||0),0);
+      const customerPaid=g.items.reduce((n,x)=>n+(Number(x.terbayar)||0),0);
+      const customerRemain=g.items.reduce((n,x)=>n+(Number(x.sisa)||0),0);
+      const active=g.items.filter(x=>String(x.status)!=='Lunas').length;
+      const creditLabel=g.items.length===1?'1 kredit':`${g.items.length} kredit`;
+      return `<details class="card customer-group" ${gi===0?'open':''} style="margin-bottom:14px;padding:0;overflow:hidden">
+        <summary style="list-style:none;cursor:pointer;padding:16px 18px;background:#f9fafb">
+          <div class="user-head">
+            <div><h3 style="margin:0 0 4px">👤 ${esc(g.nama)}</h3><div class="muted">${creditLabel} · ${active} masih berjalan</div></div>
+            <div style="text-align:right"><b>${money(customerRemain)}</b><div class="muted">sisa hutang</div></div>
+          </div>
+          <div class="stats" style="grid-template-columns:repeat(3,1fr);margin:12px 0 0">
+            <div class="stat"><span class="muted">Total kredit</span><b style="font-size:16px">${money(customerTotal)}</b></div>
+            <div class="stat"><span class="muted">Sudah dibayar</span><b style="font-size:16px">${money(customerPaid)}</b></div>
+            <div class="stat"><span class="muted">Jumlah kredit</span><b style="font-size:16px">${g.items.length}</b></div>
+          </div>
+        </summary>
+        <div style="padding:14px 18px 4px">${g.items.map((x,i)=>renderDebtCard(x,true,i)).join('')}</div>
+      </details>`;
+    }).join('');
   }
 
   function updateCalculatedTotal(){
@@ -523,7 +557,7 @@
     document.getElementById("fStatus").value="Berjalan";
     document.getElementById("fTotalPreview").value=money(0);
     document.getElementById("schedulePreview").innerHTML="";
-    document.getElementById("formTitle").textContent="Tambah Hutang";
+    document.getElementById("formTitle").textContent="Tambah Hutang / Kredit";
     hide("cancelEdit");msg("adminMsg","");
   }
   async function saveDebt(){
@@ -539,7 +573,6 @@
       catatan:document.getElementById("fNote").value.trim()
     };
     if(!d.nama||!d.barang||!d.tanggal_mulai_angsuran||Number(d.tanggal_jatuh_tempo_day)<1||Number(d.tanggal_jatuh_tempo_day)>31||Number(d.jumlah_angsuran)<1||Number(d.angsuran_per_bulan)<=0)return msg("adminMsg","Nama, nama barang, tanggal mulai, tanggal jatuh tempo tiap bulan, jumlah angsuran, dan angsuran per bulan wajib diisi.");
-    if(Number(d.angsuran_dibayar)>Number(d.jumlah_angsuran))return msg("adminMsg","Angsuran dibayar tidak boleh lebih banyak dari jumlah angsuran.");
     try{await jsonp({action:d.id?"update":"create",token:adminToken,data:JSON.stringify(d)});msg("adminMsg","Data berhasil disimpan. Jadwal angsuran dibuat otomatis.","success");resetForm();loadAdmin()}catch(e){msg("adminMsg",e.message)}
   }
   async function deleteDebt(id){
